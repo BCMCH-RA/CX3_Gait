@@ -1,0 +1,931 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gait Assessment Platform - 3x Seeed nRF52840 Sense</title>
+<style>
+:root {
+  --bg: #0b0f14;
+  --panel: #151b23;
+  --panel2: #1d2631;
+  --border: #2a3a4a;
+  --text: #dce6f0;
+  --text-dim: #7d8b99;
+  --accent: #00e58f;
+  --accent-dim: #0fa36b;
+  --danger: #ff4d4d;
+  --warning: #ffb020;
+  --info: #3aa0ff;
+  --right-leg: #ff6b6b;
+  --left-leg: #4ecdc4;
+  --torso: #ffe66d;
+  --font-mono: 'SF Mono', 'Cascadia Code', Consolas, 'Roboto Mono', monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  min-height: 100vh;
+  padding: 20px;
+}
+.container { max-width: 1400px; width: 100%; margin: 0 auto; }
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+header h1 { font-size: 20px; color: var(--accent); letter-spacing: 1px; font-weight: 700; }
+header .subtitle { font-size: 12px; color: var(--text-dim); }
+.global-conn {
+  display: flex; gap: 8px; align-items: center;
+  padding: 8px 16px; border-radius: 20px;
+  border: 1px solid var(--border); background: var(--panel);
+}
+.global-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--text-dim); }
+.global-dot.online { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+.grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
+@media (min-width: 1100px) { .grid { grid-template-columns: repeat(3, 1fr); } }
+.device-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  transition: border-color 0.2s;
+}
+.device-panel.right-leg { border-left: 4px solid var(--right-leg); }
+.device-panel.left-leg { border-left: 4px solid var(--left-leg); }
+.device-panel.torso { border-left: 4px solid var(--torso); }
+.device-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 12px;
+}
+.device-title {
+  display: flex; align-items: center; gap: 8px;
+}
+.device-title h2 {
+  font-size: 14px; text-transform: uppercase; letter-spacing: 1px;
+  font-weight: 700;
+}
+.device-title .role-badge {
+  font-size: 10px; padding: 2px 8px; border-radius: 10px;
+  font-weight: 600; text-transform: uppercase;
+}
+.device-title .role-badge.right-leg { background: var(--right-leg); color: #000; }
+.device-title .role-badge.left-leg { background: var(--left-leg); color: #000; }
+.device-title .role-badge.torso { background: var(--torso); color: #000; }
+.conn-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 16px;
+  border: 1px solid var(--border); background: var(--panel2);
+  font-size: 11px;
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-dim); }
+.dot.online { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+.dot.connecting { background: var(--warning); animation: pulse 1s infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+.panel-section {
+  margin-bottom: 14px; padding-bottom: 14px; border-bottom: 1px solid var(--border);
+}
+.panel-section:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+.panel-section h3 {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+  color: var(--text-dim); margin-bottom: 10px;
+}
+.btn-group { display: flex; flex-direction: column; gap: 6px; }
+.btn {
+  padding: 10px; border: none; border-radius: 6px;
+  font-family: var(--font-mono); font-size: 12px; font-weight: 600;
+  cursor: pointer; transition: filter 0.15s, transform 0.05s;
+  color: #06120c;
+}
+.btn:hover { filter: brightness(1.1); }
+.btn:active { transform: scale(0.98); }
+.btn:disabled { filter: grayscale(0.7) brightness(0.6); cursor: not-allowed; }
+.btn-primary { background: var(--accent); }
+.btn-danger { background: var(--danger); color: #fff; }
+.btn-warning { background: var(--warning); }
+.btn-info { background: var(--info); color: #04121f; }
+.btn-ghost { background: var(--panel2); color: var(--text); border: 1px solid var(--border); }
+.btn-small { padding: 6px 10px; font-size: 11px; }
+.stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.stat-item {
+  background: var(--panel2); border: 1px solid var(--border);
+  border-radius: 6px; padding: 8px;
+}
+.stat-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; }
+.stat-value { font-size: 13px; font-weight: 600; margin-top: 2px; }
+.stat-value.good { color: var(--accent); }
+.stat-value.warn { color: var(--warning); }
+.stat-value.bad { color: var(--danger); }
+.battery-display {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px; background: var(--panel2); border-radius: 8px;
+  border: 1px solid var(--border);
+}
+.battery-icon { position: relative; width: 48px; height: 24px; }
+.battery-body { width: 100%; height: 100%; border: 2px solid var(--text); border-radius: 4px; position: relative; }
+.battery-tip { position: absolute; right: -4px; top: 6px; width: 4px; height: 10px; background: var(--text); border-radius: 0 2px 2px 0; }
+.battery-fill { position: absolute; top: 2px; left: 2px; height: 16px; border-radius: 2px; transition: width 0.3s, background 0.3s; }
+.battery-fill.low { background: var(--danger); }
+.battery-fill.med { background: var(--warning); }
+.battery-fill.high { background: var(--accent); }
+.battery-info { flex: 1; }
+.battery-pct { font-size: 18px; font-weight: 700; }
+.battery-volt { font-size: 11px; color: var(--text-dim); }
+.live-values {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+  margin-bottom: 12px;
+}
+.axis-box {
+  background: var(--panel2); border-radius: 8px; padding: 10px;
+  text-align: center; border: 1px solid var(--border);
+}
+.axis-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; }
+.axis-value { font-size: 16px; font-weight: 700; margin-top: 4px; }
+.axis-unit { font-size: 10px; color: var(--text-dim); }
+.sparkline-canvas { width: 100%; height: 100px; background: var(--panel2); border-radius: 6px; border: 1px solid var(--border); }
+.controls-global {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 12px; padding: 16px; margin-bottom: 16px;
+}
+.controls-global h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); margin-bottom: 12px; }
+.global-btn-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.global-btn { flex: 1; min-width: 140px; }
+.log-area {
+  background: var(--panel2); border-radius: 8px; padding: 10px;
+  font-size: 11px; height: 150px; overflow-y: auto;
+  color: var(--text-dim); border: 1px solid var(--border);
+  font-family: var(--font-mono);
+}
+.log-line { margin: 2px 0; white-space: pre-wrap; }
+.log-line.err { color: var(--danger); }
+.log-line.ok { color: var(--accent); }
+.log-line.warn { color: var(--warning); }
+.log-line.info { color: var(--info); }
+.device-selector { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.device-chip {
+  padding: 6px 12px; border-radius: 20px; border: 2px solid var(--border);
+  background: var(--panel2); color: var(--text); font-size: 11px;
+  font-weight: 600; cursor: pointer; transition: all 0.2s;
+}
+.device-chip.selected { border-color: var(--accent); background: rgba(0,229,143,0.15); }
+.device-chip.right-leg.selected { border-color: var(--right-leg); background: rgba(255,107,107,0.15); }
+.device-chip.left-leg.selected { border-color: var(--left-leg); background: rgba(78,205,196,0.15); }
+.device-chip.torso.selected { border-color: var(--torso); background: rgba(255,230,109,0.15); }
+.device-chip:disabled { opacity: 0.4; cursor: not-allowed; }
+.footer { margin-top: 20px; text-align: center; font-size: 11px; color: var(--text-dim); }
+.hidden { display: none !important; }
+.toast {
+  position: fixed; bottom: 20px; right: 20px;
+  background: var(--panel); border: 1px solid var(--border);
+  padding: 12px 20px; border-radius: 8px; z-index: 1000;
+  animation: slideIn 0.3s ease;
+}
+@keyframes slideIn { from { transform: translateY(100px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+.toast.success { border-left: 4px solid var(--accent); }
+.toast.error { border-left: 4px solid var(--danger); }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div>
+      <h1>Gait Assessment Platform</h1>
+      <div class="subtitle">3× Seeed nRF52840 Sense — Right Leg, Left Leg, Torso</div>
+    </div>
+    <div class="global-conn">
+      <span class="global-dot" id="globalDot"></span>
+      <span id="globalStatus">0/3 Connected</span>
+    </div>
+  </header>
+
+  <div class="controls-global">
+    <h2>Global Controls</h2>
+    <div class="device-selector" id="deviceSelector">
+      <div class="device-chip right-leg" data-role="0" onclick="toggleDeviceSelect(0)">Right Leg</div>
+      <div class="device-chip left-leg" data-role="1" onclick="toggleDeviceSelect(1)">Left Leg</div>
+      <div class="device-chip torso" data-role="2" onclick="toggleDeviceSelect(2)">Torso</div>
+    </div>
+    <div class="global-btn-row">
+      <button class="btn btn-primary global-btn" id="btnConnectAll" onclick="connectAll()">Connect All</button>
+      <button class="btn btn-ghost global-btn" id="btnRefreshAll" onclick="refreshAll()" disabled>Refresh Data</button>
+      <button class="btn btn-warning global-btn" id="btnStartAll" onclick="startRecordingAll()" disabled>Start Recording (Selected)</button>
+      <button class="btn btn-danger global-btn" id="btnStopAll" onclick="stopRecordingAll()" disabled>Stop Recording (All)</button>
+      <button class="btn btn-info global-btn" id="btnDownloadAll" onclick="downloadAllCSV()" disabled>Download All CSV</button>
+    </div>
+  </div>
+
+  <div class="grid" id="deviceGrid">
+    <!-- Device panels injected here -->
+  </div>
+
+  <div class="footer">
+    Requires Chrome/Edge on secure context (HTTPS or localhost). Compatible with Android & desktop.
+    <br>Time sync: Browser epoch → Device → IST (UTC+5:30) | IMU: 200 Hz | Packet: 8 samples @ 25 Hz
+  </div>
+</div>
+
+<div id="toastContainer"></div>
+
+<script>
+// ─── BLE UUIDs (match firmware) ────────────────────────────────────
+const SERVICE_UUID      = '19b10000-e8f2-537e-4f6c-d104768a1214';
+const IMU_CHAR_UUID     = '19b10001-e8f2-537e-4f6c-d104768a1214';
+const CMD_CHAR_UUID     = '19b10002-e8f2-537e-4f6c-d104768a1214';
+const STATUS_CHAR_UUID  = '19b10003-e8f2-537e-4f6c-d104768a1214';
+const BATTERY_CHAR_UUID = '19b10004-e8f2-537e-4f6c-d104768a1214';
+
+const CMD_START = 0x01;
+const CMD_STOP  = 0x02;
+const CMD_SYNC  = 0x03;
+const CMD_GET_STATUS = 0x04;
+
+const ACCEL_LSB_PER_G  = 32768.0 / 4.0;
+const GYRO_LSB_PER_DPS = 32768.0 / 2000.0;
+
+const ROLE_NAMES = ['Right Leg', 'Left Leg', 'Torso'];
+const ROLE_COLORS = ['#ff6b6b', '#4ecdc4', '#ffe66d'];
+const ROLE_CLASSES = ['right-leg', 'left-leg', 'torso'];
+
+// ─── Per-Device State ──────────────────────────────────────────────
+const deviceState = [0,1,2].map(role => ({
+  role,
+  name: ROLE_NAMES[role],
+  color: ROLE_COLORS[role],
+  class: ROLE_CLASSES[role],
+  device: null,
+  server: null,
+  imuChar: null,
+  cmdChar: null,
+  statusChar: null,
+  batteryChar: null,
+  connected: false,
+  connecting: false,
+  recording: false,
+  lastSeq: -1,
+  totalPackets: 0,
+  totalSamples: 0,
+  lostPackets: 0,
+  samplesBuffer: [],
+  captureBuffer: [],
+  lastRateTime: 0,
+  samplesAtRate: 0,
+  currentRate: 0,
+  timeSyncSent: false,
+  batteryPercent: 0,
+  batteryVoltage: 0,
+  histData: { ax: [], ay: [], az: [], gx: [] },
+  sparkCtx: null,
+  selected: true
+}));
+
+let selectedRoles = [0, 1, 2]; // all selected by default
+
+// ─── Helpers ───────────────────────────────────────────────────────
+function log(msg, cls = '') {
+  const el = document.getElementById('logArea');
+  if (!el) return;
+  const line = document.createElement('div');
+  line.className = 'log-line ' + cls;
+  const now = new Date().toLocaleTimeString('en-IN');
+  line.textContent = `[${now}] ${msg}`;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+  while (el.children.length > 100) el.removeChild(el.firstChild);
+}
+
+function toast(msg, type = 'success') {
+  const container = document.getElementById('toastContainer');
+  const t = document.createElement('div');
+  t.className = `toast ${type}`;
+  t.textContent = msg;
+  container.appendChild(t);
+  setTimeout(() => { t.remove(); }, 3000);
+}
+
+function toIST(epoch) {
+  const d = new Date((epoch + 5.5 * 3600) * 1000);
+  return d.toISOString().substr(11, 8);
+}
+
+function getState(role) { return deviceState[role]; }
+
+function updateGlobalStatus() {
+  const connected = deviceState.filter(s => s.connected).length;
+  const dot = document.getElementById('globalDot');
+  const txt = document.getElementById('globalStatus');
+  if (connected > 0) {
+    dot.className = 'global-dot online';
+    txt.textContent = `${connected}/3 Connected`;
+  } else {
+    dot.className = 'global-dot';
+    txt.textContent = '0/3 Connected';
+  }
+}
+
+function updateDeviceUI(role) {
+  const s = getState(role);
+  const panel = document.getElementById(`panel-${role}`);
+  if (!panel) return;
+
+  // Connection badge
+  const dot = document.getElementById(`dot-${role}`);
+  const connText = document.getElementById(`connText-${role}`);
+  const btnConnect = document.getElementById(`btnConnect-${role}`);
+  const btnDisconnect = document.getElementById(`btnDisconnect-${role}`);
+  const btnRefresh = document.getElementById(`btnRefresh-${role}`);
+  const btnStart = document.getElementById(`btnStart-${role}`);
+  const btnStop = document.getElementById(`btnStop-${role}`);
+  const btnDownload = document.getElementById(`btnDownload-${role}`);
+
+  if (s.connecting) {
+    dot.className = 'dot connecting';
+    connText.textContent = 'Connecting...';
+  } else if (s.connected) {
+    dot.className = 'dot online';
+    connText.textContent = 'Connected';
+  } else {
+    dot.className = 'dot';
+    connText.textContent = 'Disconnected';
+  }
+
+  btnConnect.disabled = s.connected || s.connecting;
+  btnDisconnect.disabled = !s.connected;
+  btnRefresh.disabled = !s.connected;
+  btnStart.disabled = !s.connected || s.recording;
+  btnStop.disabled = !s.connected || !s.recording;
+  btnDownload.disabled = s.captureBuffer.length === 0 && s.samplesBuffer.length === 0;
+
+  // Stats
+  document.getElementById(`stSamples-${role}`).textContent = s.totalSamples.toLocaleString();
+  document.getElementById(`stPackets-${role}`).textContent = s.totalPackets.toLocaleString();
+  document.getElementById(`stLost-${role}`).textContent = s.lostPackets.toLocaleString();
+  document.getElementById(`stRate-${role}`).textContent = s.currentRate + ' Hz';
+  const lossPct = s.totalPackets > 0 ? (s.lostPackets / (s.lostPackets + s.totalPackets) * 100) : 0;
+  const lossEl = document.getElementById(`stLossPct-${role}`);
+  lossEl.textContent = lossPct.toFixed(2) + ' %';
+  lossEl.className = 'stat-value ' + (lossPct > 5 ? 'bad' : (lossPct > 1 ? 'warn' : 'good'));
+
+  // Battery
+  const batPct = document.getElementById(`batPct-${role}`);
+  const batVolt = document.getElementById(`batVolt-${role}`);
+  const batFill = document.getElementById(`batFill-${role}`);
+  if (batPct) batPct.textContent = s.batteryPercent + '%';
+  if (batVolt) batVolt.textContent = s.batteryVoltage.toFixed(2) + ' V';
+  if (batFill) {
+    batFill.style.width = s.batteryPercent + '%';
+    batFill.className = 'battery-fill ' +
+      (s.batteryPercent < 20 ? 'low' : (s.batteryPercent < 50 ? 'med' : 'high'));
+  }
+
+  // Recording status
+  const recEl = document.getElementById(`stRec-${role}`);
+  if (recEl) {
+    recEl.textContent = s.recording ? 'ON' : 'OFF';
+    recEl.className = 'stat-value ' + (s.recording ? 'good' : '');
+  }
+  const timeEl = document.getElementById(`stTime-${role}`);
+  if (timeEl && s.timeSyncSent) {
+    timeEl.textContent = toIST(Math.floor(Date.now()/1000)) + ' (synced)';
+  }
+}
+
+function updateAllUI() {
+  deviceState.forEach(s => updateDeviceUI(s.role));
+  updateGlobalStatus();
+  updateGlobalButtons();
+}
+
+function updateGlobalButtons() {
+  const anyConnected = deviceState.some(s => s.connected);
+  const anyRecording = deviceState.some(s => s.recording);
+  const anySelectedConnected = selectedRoles.some(r => getState(r).connected);
+  const anySelectedRecording = selectedRoles.some(r => getState(r).recording);
+  const anyData = deviceState.some(s => s.captureBuffer.length > 0 || s.samplesBuffer.length > 0);
+
+  document.getElementById('btnRefreshAll').disabled = !anyConnected;
+  document.getElementById('btnStartAll').disabled = !anySelectedConnected || anySelectedRecording;
+  document.getElementById('btnStopAll').disabled = !anyRecording;
+  document.getElementById('btnDownloadAll').disabled = !anyData;
+}
+
+function toggleDeviceSelect(role) {
+  const idx = selectedRoles.indexOf(role);
+  const chip = document.querySelector(`.device-chip[data-role="${role}"]`);
+  if (idx >= 0) {
+    selectedRoles.splice(idx, 1);
+    chip.classList.remove('selected');
+  } else {
+    selectedRoles.push(role);
+    chip.classList.add('selected');
+  }
+  updateGlobalButtons();
+}
+
+// ─── Sparkline ─────────────────────────────────────────────────────
+function drawSparkline(role) {
+  const s = getState(role);
+  const canvas = document.getElementById(`spark-${role}`);
+  if (!canvas) return;
+  const ctx = s.sparkCtx || canvas.getContext('2d');
+  s.sparkCtx = ctx;
+
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = canvas.clientWidth * dpr;
+  canvas.height = canvas.clientHeight * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  ctx.clearRect(0, 0, w, h);
+
+  const series = [
+    { key: 'ax', color: '#3aa0ff', label: 'Ax' },
+    { key: 'ay', color: '#00e58f', label: 'Ay' },
+    { key: 'az', color: '#ffb020', label: 'Az' },
+    { key: 'gx', color: '#ff4d4d', label: 'Gx' }
+  ];
+
+  const HIST_LEN = 240;
+  let min = 0, max = 0;
+  for (const ser of series) {
+    for (const v of s.histData[ser.key]) {
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
+  }
+  if (max - min < 0.5) max = min + 0.5;
+
+  for (const ser of series) {
+    const data = s.histData[ser.key];
+    if (data.length < 2) continue;
+    ctx.beginPath();
+    ctx.strokeStyle = ser.color;
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i < data.length; i++) {
+      const x = (i / (HIST_LEN - 1)) * w;
+      const y = h - ((data[i] - min) / (max - min)) * h;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+
+  // Grid
+  ctx.strokeStyle = '#2a3a4a'; ctx.lineWidth = 0.5;
+  for (let i = 1; i < 4; i++) {
+    ctx.beginPath();
+    ctx.moveTo(0, (h/4)*i); ctx.lineTo(w, (h/4)*i); ctx.stroke();
+  }
+}
+
+// ─── BLE Connection ────────────────────────────────────────────────
+async function connectDevice(role) {
+  const s = getState(role);
+  if (s.connected || s.connecting) return;
+
+  if (!navigator.bluetooth) {
+    toast('Web Bluetooth not supported. Use Chrome/Edge on HTTPS/localhost.', 'error');
+    return;
+  }
+
+  s.connecting = true;
+  updateDeviceUI(role);
+  log(`[${s.name}] Requesting device...`, 'info');
+
+  try {
+    const filters = [{ services: [SERVICE_UUID] }];
+    // Optional: filter by name prefix to distinguish devices
+    // filters.push({ namePrefix: 'Gait-' });
+
+    s.device = await navigator.bluetooth.requestDevice({
+      filters,
+      optionalServices: [SERVICE_UUID]
+    });
+
+    s.device.addEventListener('gattserverdisconnected', () => onDisconnected(role));
+    log(`[${s.name}] Device selected: ${s.device.name || 'Unknown'}`, 'ok');
+
+    s.server = await s.device.gatt.connect();
+    s.connected = true;
+    s.connecting = false;
+    log(`[${s.name}] GATT connected`, 'ok');
+
+    const svc = await s.server.getPrimaryService(SERVICE_UUID);
+    s.imuChar = await svc.getCharacteristic(IMU_CHAR_UUID);
+    s.cmdChar = await svc.getCharacteristic(CMD_CHAR_UUID);
+    s.statusChar = await svc.getCharacteristic(STATUS_CHAR_UUID);
+    s.batteryChar = await svc.getCharacteristic(BATTERY_CHAR_UUID);
+
+    s.imuChar.addEventListener('characteristicvaluechanged', (e) => onIMUData(role, e));
+    await s.imuChar.startNotifications();
+    log(`[${s.name}] IMU notifications enabled`, 'ok');
+
+    // Read initial status & battery
+    await readStatus(role);
+    await readBattery(role);
+
+    // Sync time
+    await syncTime(role);
+    log(`[${s.name}] Time sync sent`, 'ok');
+
+  } catch (e) {
+    log(`[${s.name}] Connect error: ${e.message}`, 'err');
+    toast(`${s.name}: ${e.message}`, 'error');
+    s.connected = false;
+    s.connecting = false;
+  }
+  updateDeviceUI(role);
+  updateGlobalStatus();
+}
+
+async function disconnectDevice(role) {
+  const s = getState(role);
+  try {
+    if (s.recording) await sendCommand(role, CMD_STOP);
+    if (s.imuChar) { try { await s.imuChar.stopNotifications(); } catch(e) {} }
+    if (s.server && s.server.connected) await s.server.disconnect();
+  } catch (e) { log(`[${s.name}] Disconnect error: ${e.message}`, 'err'); }
+  s.connected = false;
+  s.connecting = false;
+  s.recording = false;
+  s.lastSeq = -1;
+  updateDeviceUI(role);
+  updateGlobalStatus();
+  log(`[${s.name}] Disconnected`);
+}
+
+function onDisconnected(role) {
+  const s = getState(role);
+  log(`[${s.name}] Device disconnected`, 'err');
+  s.connected = false;
+  s.connecting = false;
+  s.recording = false;
+  s.lastSeq = -1;
+  updateDeviceUI(role);
+  updateGlobalStatus();
+}
+
+async function sendCommand(role, cmd, extra) {
+  const s = getState(role);
+  if (!s.cmdChar) return;
+  const payload = [cmd];
+  if (extra !== undefined) {
+    for (const b of extra) payload.push(b);
+  }
+  try {
+    await s.cmdChar.writeValueWithoutResponse(new Uint8Array(payload));
+  } catch (e) {
+    log(`[${s.name}] Write failed: ${e.message}`, 'err');
+  }
+}
+
+async function syncTime(role) {
+  const s = getState(role);
+  const epoch = Math.floor(Date.now() / 1000);
+  const dv = new DataView(new ArrayBuffer(5));
+  dv.setUint8(0, CMD_SYNC);
+  dv.setUint32(1, epoch, true);
+  try {
+    await s.cmdChar.writeValueWithoutResponse(new Uint8Array(dv.buffer));
+    s.timeSyncSent = true;
+    document.getElementById(`stTime-${role}`).textContent = toIST(epoch) + ' (sync sent)';
+    log(`[${s.name}] Sent epoch=${epoch} IST=${toIST(epoch)}`, 'ok');
+  } catch (e) {
+    log(`[${s.name}] Time sync failed: ${e.message}`, 'err');
+  }
+}
+
+async function readStatus(role) {
+  const s = getState(role);
+  if (!s.statusChar) return;
+  try {
+    const v = await s.statusChar.readValue();
+    log(`[${s.name}] Status read: ${v.byteLength} bytes`);
+  } catch (e) {
+    log(`[${s.name}] Status read failed: ${e.message}`, 'err');
+  }
+}
+
+async function readBattery(role) {
+  const s = getState(role);
+  if (!s.batteryChar) return;
+  try {
+    const v = await s.batteryChar.readValue();
+    if (v.byteLength >= 10) {
+      const dv = new DataView(v.buffer);
+      // magic(2), seq(2), type(1), role(1), ts(4), pct(1), volt(4)
+      s.batteryPercent = dv.getUint8(10);
+      s.batteryVoltage = dv.getFloat32(11, true);
+    }
+  } catch (e) {
+    log(`[${s.name}] Battery read failed: ${e.message}`, 'err');
+  }
+}
+
+// ─── IMU Data Parsing ──────────────────────────────────────────────
+function onIMUData(role, event) {
+  const s = getState(role);
+  const dv = event.target.value;
+  if (dv.byteLength < 8) return;
+
+  const magic = dv.getUint16(0, true);
+  const seq = dv.getUint16(2, true);
+  const pktType = dv.getUint8(4);
+  const deviceRole = dv.getUint8(5);
+  const ts_ms = dv.getUint32(6, true);
+
+  if (magic !== 0xBEEF) { log(`[${s.name}] Bad magic 0x${magic.toString(16)}`, 'err'); return; }
+  if (deviceRole !== role) return;
+
+  s.totalPackets++;
+
+  if (s.lastSeq >= 0) {
+    const delta = (seq - s.lastSeq + 65536) % 65536;
+    if (delta > 1) s.lostPackets += (delta - 1);
+  }
+  s.lastSeq = seq;
+
+  if (pktType === PKT_TYPE_IMU) {
+    const sampleCount = (dv.byteLength - 8) / 12;
+    let off = 8;
+    for (let i = 0; i < sampleCount; i++) {
+      const ax = dv.getInt16(off, true);
+      const ay = dv.getInt16(off + 2, true);
+      const az = dv.getInt16(off + 4, true);
+      const gx = dv.getInt16(off + 6, true);
+      const gy = dv.getInt16(off + 8, true);
+      const gz = dv.getInt16(off + 10, true);
+      off += 12;
+
+      const af = ax / ACCEL_LSB_PER_G;
+      const ag = ay / ACCEL_LSB_PER_G;
+      const ah = az / ACCEL_LSB_PER_G;
+      const gf = gx / GYRO_LSB_PER_DPS;
+      const gg = gy / GYRO_LSB_PER_DPS;
+      const gh = gz / GYRO_LSB_PER_DPS;
+
+      // Update live display (last sample)
+      if (i === sampleCount - 1) {
+        document.getElementById(`accX-${role}`).textContent = af.toFixed(3);
+        document.getElementById(`accY-${role}`).textContent = ag.toFixed(3);
+        document.getElementById(`accZ-${role}`).textContent = ah.toFixed(3);
+        document.getElementById(`gyroX-${role}`).textContent = gf.toFixed(2);
+        document.getElementById(`gyroY-${role}`).textContent = gg.toFixed(2);
+        document.getElementById(`gyroZ-${role}`).textContent = gh.toFixed(2);
+      }
+
+      // History for sparkline
+      s.histData.ax.push(af); s.histData.ay.push(ag);
+      s.histData.az.push(ah); s.histData.gx.push(gf);
+      if (s.histData.ax.length > 240) {
+        s.histData.ax.shift(); s.histData.ay.shift();
+        s.histData.az.shift(); s.histData.gx.shift();
+      }
+
+      // Buffers
+      s.totalSamples++;
+      s.samplesBuffer.push({ ts: ts_ms + i * 5, ax, ay, az, gx, gy, gz });
+      if (s.recording) s.captureBuffer.push({ ts: ts_ms + i * 5, ax, ay, az, gx, gy, gz });
+    }
+
+    // Sample rate
+    const nowMs = performance.now();
+    if (nowMs - s.lastRateTime >= 1000) {
+      s.currentRate = s.samplesAtRate;
+      s.samplesAtRate = 0;
+      s.lastRateTime = nowMs;
+    }
+    s.samplesAtRate += sampleCount;
+
+    drawSparkline(role);
+  } else if (pktType === PKT_TYPE_BATTERY) {
+    if (dv.byteLength >= 14) {
+      const dv2 = new DataView(dv.buffer);
+      s.batteryPercent = dv2.getUint8(10);
+      s.batteryVoltage = dv2.getFloat32(11, true);
+    }
+  } else if (pktType === PKT_TYPE_STATUS) {
+    if (dv.byteLength >= 22) {
+      const dv2 = new DataView(dv.buffer);
+      s.batteryPercent = dv2.getUint8(10);
+      s.batteryVoltage = dv2.getFloat32(11, true);
+      s.recording = dv2.getUint8(15) !== 0;
+    }
+  }
+
+  updateDeviceUI(role);
+}
+
+// ─── Recording Controls ────────────────────────────────────────────
+async function startRecording(role) {
+  const s = getState(role);
+  s.captureBuffer = [];
+  await sendCommand(role, CMD_START);
+  s.recording = true;
+  updateDeviceUI(role);
+  updateGlobalButtons();
+  log(`[${s.name}] Recording started`, 'ok');
+  toast(`${s.name}: Recording started`);
+}
+
+async function stopRecording(role) {
+  const s = getState(role);
+  await sendCommand(role, CMD_STOP);
+  s.recording = false;
+  updateDeviceUI(role);
+  updateGlobalButtons();
+  log(`[${s.name}] Recording stopped. Captured ${s.captureBuffer.length} samples`, 'ok');
+  toast(`${s.name}: Recording stopped (${s.captureBuffer.length} samples)`);
+}
+
+// ─── CSV Download ──────────────────────────────────────────────────
+function downloadCSV(role) {
+  const s = getState(role);
+  const src = s.captureBuffer.length > 0 ? s.captureBuffer : s.samplesBuffer;
+  if (src.length === 0) { toast(`[${s.name}] No data to download`, 'error'); return; }
+
+  const header = 'ms_since_boot,raw_ax,raw_ay,raw_az,raw_gx,raw_gy,raw_gz,ax_g,ay_g,az_g,gx_dps,gy_dps,gz_dps';
+  const rows = [header];
+  for (const d of src) {
+    rows.push([
+      d.ts,
+      d.ax, d.ay, d.az, d.gx, d.gy, d.gz,
+      (d.ax / ACCEL_LSB_PER_G).toFixed(5),
+      (d.ay / ACCEL_LSB_PER_G).toFixed(5),
+      (d.az / ACCEL_LSB_PER_G).toFixed(5),
+      (d.gx / GYRO_LSB_PER_DPS).toFixed(5),
+      (d.gy / GYRO_LSB_PER_DPS).toFixed(5),
+      (d.gz / GYRO_LSB_PER_DPS).toFixed(5)
+    ].join(','));
+  }
+  const csv = rows.join('\n');
+  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const stamp = new Date().toISOString().replace(/[:T]/g, '-').substr(0, 19);
+  a.download = `gait_${s.name.replace(' ', '_')}_${stamp}.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  log(`[${s.name}] CSV downloaded: ${src.length} samples`, 'ok');
+  toast(`${s.name}: CSV downloaded`);
+}
+
+function downloadAllCSV() {
+  let totalSamples = 0;
+  deviceState.forEach(s => {
+    if (s.captureBuffer.length > 0 || s.samplesBuffer.length > 0) {
+      downloadCSV(s.role);
+      totalSamples += Math.max(s.captureBuffer.length, s.samplesBuffer.length);
+    }
+  });
+  if (totalSamples === 0) toast('No data from any device', 'error');
+}
+
+// ─── Global Actions ────────────────────────────────────────────────
+async function connectAll() {
+  for (const role of selectedRoles) {
+    await connectDevice(role);
+    await new Promise(r => setTimeout(r, 500)); // stagger connections
+  }
+}
+
+async function refreshAll() {
+  for (const role of selectedRoles) {
+    const s = getState(role);
+    if (s.connected) {
+      await readStatus(role);
+      await readBattery(role);
+      await syncTime(role);
+    }
+  }
+  log('Refreshed selected devices', 'ok');
+  toast('Data refreshed');
+}
+
+async function startRecordingAll() {
+  for (const role of selectedRoles) {
+    const s = getState(role);
+    if (s.connected && !s.recording) await startRecording(role);
+  }
+}
+
+async function stopRecordingAll() {
+  for (const s of deviceState) {
+    if (s.recording) await stopRecording(s.role);
+  }
+}
+
+// ─── UI Generation ─────────────────────────────────────────────────
+function createDevicePanel(role) {
+  const s = getState(role);
+  return `
+  <div class="device-panel ${s.class}" id="panel-${role}">
+    <div class="device-header">
+      <div class="device-title">
+        <h2>${s.name}</h2>
+        <span class="role-badge ${s.class}">${s.name}</span>
+      </div>
+      <div class="conn-badge">
+        <span class="dot" id="dot-${role}"></span>
+        <span id="connText-${role}">Disconnected</span>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <h3>Connection</h3>
+      <div class="btn-group">
+        <button class="btn btn-primary" id="btnConnect-${role}" onclick="connectDevice(${role})">Connect</button>
+        <button class="btn btn-danger" id="btnDisconnect-${role}" onclick="disconnectDevice(${role})" disabled>Disconnect</button>
+        <button class="btn btn-ghost" id="btnRefresh-${role}" onclick="refreshDevice(${role})" disabled>Refresh</button>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <h3>Battery</h3>
+      <div class="battery-display">
+        <div class="battery-icon">
+          <div class="battery-body"><div class="battery-fill" id="batFill-${role}" style="width:0%"></div></div>
+          <div class="battery-tip"></div>
+        </div>
+        <div class="battery-info">
+          <div class="battery-pct" id="batPct-${role}">--%</div>
+          <div class="battery-volt" id="batVolt-${role}">-- V</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <h3>Recording</h3>
+      <div class="btn-group">
+        <button class="btn btn-warning" id="btnStart-${role}" onclick="startRecording(${role})" disabled>Start Recording</button>
+        <button class="btn btn-danger" id="btnStop-${role}" onclick="stopRecording(${role})" disabled>Stop Recording</button>
+        <button class="btn btn-info" id="btnDownload-${role}" onclick="downloadCSV(${role})" disabled>Download CSV</button>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <h3>Statistics</h3>
+      <div class="stat-grid">
+        <div class="stat-item"><div class="stat-label">Recording</div><div class="stat-value" id="stRec-${role}">OFF</div></div>
+        <div class="stat-item"><div class="stat-label">Samples</div><div class="stat-value" id="stSamples-${role}">0</div></div>
+        <div class="stat-item"><div class="stat-label">Packets</div><div class="stat-value" id="stPackets-${role}">0</div></div>
+        <div class="stat-item"><div class="stat-label">Lost</div><div class="stat-value" id="stLost-${role}">0</div></div>
+        <div class="stat-item"><div class="stat-label">Loss %</div><div class="stat-value good" id="stLossPct-${role}">0.00%</div></div>
+        <div class="stat-item"><div class="stat-label">Rate</div><div class="stat-value" id="stRate-${role}">0 Hz</div></div>
+        <div class="stat-item"><div class="stat-label">Device Time</div><div class="stat-value" id="stTime-${role}">--</div></div>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <h3>Live IMU (Last Sample)</h3>
+      <div class="live-values">
+        <div class="axis-box"><div class="axis-label">Acc X</div><div class="axis-value"><span id="accX-${role}">0.000</span><span class="axis-unit">g</span></div></div>
+        <div class="axis-box"><div class="axis-label">Acc Y</div><div class="axis-value"><span id="accY-${role}">0.000</span><span class="axis-unit">g</span></div></div>
+        <div class="axis-box"><div class="axis-label">Acc Z</div><div class="axis-value"><span id="accZ-${role}">0.000</span><span class="axis-unit">g</span></div></div>
+        <div class="axis-box"><div class="axis-label">Gyro X</div><div class="axis-value"><span id="gyroX-${role}">0.0</span><span class="axis-unit">dps</span></div></div>
+        <div class="axis-box"><div class="axis-label">Gyro Y</div><div class="axis-value"><span id="gyroY-${role}">0.0</span><span class="axis-unit">dps</span></div></div>
+        <div class="axis-box"><div class="axis-label">Gyro Z</div><div class="axis-value"><span id="gyroZ-${role}">0.0</span><span class="axis-unit">dps</span></div></div>
+      </div>
+      <canvas class="sparkline-canvas" id="spark-${role}"></canvas>
+      <div style="font-size:10px;color:var(--text-dim);text-align:center;margin-top:4px;">
+        <span style="color:#3aa0ff">■ AccX</span>
+        <span style="color:#00e58f;margin-left:12px">■ AccY</span>
+        <span style="color:#ffb020;margin-left:12px">■ AccZ</span>
+        <span style="color:#ff4d4d;margin-left:12px">■ GyroX</span>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderDevicePanels() {
+  const grid = document.getElementById('deviceGrid');
+  grid.innerHTML = deviceState.map(s => createDevicePanel(s.role)).join('');
+  deviceState.forEach(s => {
+    const canvas = document.getElementById(`spark-${s.role}`);
+    if (canvas) s.sparkCtx = canvas.getContext('2d');
+  });
+  updateAllUI();
+}
+
+function refreshDevice(role) {
+  const s = getState(role);
+  if (s.connected) {
+    readStatus(role);
+    readBattery(role);
+    syncTime(role);
+  }
+}
+
+// ─── Init ──────────────────────────────────────────────────────────
+renderDevicePanels();
+log('Ready. Select devices and click "Connect All" or individual Connect buttons.');
+log('Requires Chrome/Edge on secure context (HTTPS or localhost).');
+</script>
+</body>
+</html>
