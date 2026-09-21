@@ -1,762 +1,208 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Gait IMU — Web Bluetooth Recorder</title>
-<style>
-  :root{
-    --bg:#eef2f7; --card:#ffffff; --ink:#101826; --muted:#5b6b7f; --line:#d8e0ea;
-    --blue:#1d4ed8; --green:#047857; --red:#be123c; --orange:#c2410c;
-    --slate:#475569; --violet:#6d28d9; --darkred:#7f1d1d;
-  }
-  *{box-sizing:border-box}
-  body{margin:0;font:16px/1.45 system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-       background:var(--bg);color:var(--ink)}
-  header{background:#0b1524;color:#f8fafc;padding:18px 20px}
-  header h1{margin:0;font-size:1.35rem;letter-spacing:.3px}
-  header p{margin:4px 0 0;color:#93a6c0;font-size:.9rem}
-  main{max-width:1080px;margin:0 auto;padding:14px;display:grid;gap:14px}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;
-        padding:16px;box-shadow:0 1px 3px rgba(15,25,40,.06)}
-  .card h2{margin:0 0 12px;font-size:1.05rem}
-  ol.howto{margin:0;padding-left:22px}
-  ol.howto li{margin:4px 0}
-  .warn{margin-top:10px;background:#fef3c7;border:1px solid #fcd34d;color:#78350f;
-        border-radius:8px;padding:8px 12px;font-size:.9rem}
-  .controls{display:flex;flex-wrap:wrap;gap:10px}
-  .btn{min-height:48px;padding:0 18px;border-radius:10px;border:none;color:#fff;
-       font-size:1rem;font-weight:600;cursor:pointer;letter-spacing:.2px}
-  .btn:hover:not(:disabled){filter:brightness(1.1)}
-  .btn:disabled{background:#c3ccd8 !important;cursor:not-allowed}
-  .btn.small{min-height:34px;padding:0 12px;font-size:.85rem}
-  #btnPair{background:var(--blue)}      #btnStartStream{background:var(--green)}
-  #btnStopStream{background:var(--red)} #btnRefresh{background:var(--slate)}
-  #btnStartRec{background:var(--orange)}#btnStopRec{background:var(--darkred)}
-  #btnDownload{background:var(--violet)}
-  #globalBar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-  .pill{display:inline-block;padding:3px 12px;border-radius:999px;font-size:.85rem;
-        font-weight:700;background:#e2e8f0;color:#334155}
-  .pill.ok{background:#dcfce7;color:#166534}
-  .pill.bad{background:#fee2e2;color:#991b1b}
-  .pill.stream{background:#ccfbf1;color:#065f46}
-  .pill.rec{background:#fee2e2;color:#991b1b;animation:blink 1s infinite}
-  @keyframes blink{50%{opacity:.35}}
-  #moduleGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
-  .module-card{background:var(--card);border:1px solid var(--line);border-top:4px solid #64748b;
-               border-radius:14px;padding:12px;box-shadow:0 1px 3px rgba(15,25,40,.06)}
-  .mod-head{display:flex;justify-content:space-between;align-items:center;gap:8px}
-  .mod-name{font-size:1.1rem}
-  .mod-sub{color:var(--muted);font-size:.82rem;margin:2px 0 8px}
-  canvas.chart{width:100%;height:96px;display:block;background:#fbfdff;
-               border:1px solid var(--line);border-radius:8px}
-  .mod-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:6px 10px;margin-top:8px}
-  .mod-stats div{display:flex;flex-direction:column}
-  .mod-stats .k{font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
-  .mod-stats .v{font-weight:700;font-size:.9rem}
-  .mod-latest{margin-top:8px;font:12.5px/1.4 ui-monospace,Consolas,monospace;
-              color:#334155;word-break:break-word}
-  .btn-recon{margin-top:10px}
-  .placeholder{color:var(--muted);padding:18px;text-align:center}
-  .statgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
-  .statgrid div{display:flex;flex-direction:column}
-  .statgrid .k{font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
-  .statgrid .v{font-size:1.15rem;font-weight:700}
-  #logBox{background:#0b1524;color:#cbd8ea;font:12.5px/1.5 ui-monospace,Consolas,monospace;
-          padding:10px 12px;border-radius:10px;height:190px;overflow-y:auto;white-space:pre-wrap}
-  footer{max-width:1080px;margin:0 auto;padding:0 14px 20px;color:var(--muted);font-size:.8rem}
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GaitIMU Data Collection</title>
+  <style>
+    body { font-family: sans-serif; max-width: 800px; margin: 2rem auto; padding: 1rem; }
+    button { padding: 10px 15px; margin: 5px; font-size: 1rem; cursor: pointer; }
+    button:disabled { background-color: #ccc; cursor: not-allowed; }
+    .status { margin-top: 20px; padding: 10px; background: #f4f4f4; border-radius: 5px; }
+    .log { height: 150px; overflow-y: scroll; background: #222; color: #0f0; padding: 10px; font-family: monospace; font-size: 0.85rem; }
+  </style>
 </head>
 <body>
-<header>
-  <h1>Gait IMU Recorder</h1>
-  <p>3 × ESP32-C3 + MPU-6050 · 200 Hz · BLE / Web Bluetooth · time-synced CSV</p>
-</header>
-<main>
 
-  <section class="card">
-    <h2>How to use</h2>
-    <ol class="howto">
-      <li>Power the three modules (battery or USB) and attach them: <b>Right Leg</b>, <b>Left Leg</b>, <b>Torso</b>.</li>
-      <li>Click <b>Pair Modules (BLE)</b> — select <i>GaitIMU-RightLeg</i>, <i>GaitIMU-LeftLeg</i> and <i>GaitIMU-Torso</i> in the browser dialog (3 dialogs). Clocks are synced to Unix epoch automatically with multi-sample latency compensation.</li>
-      <li><b>Start Streaming</b> — each card should show ≈ 200 Hz and a live acceleration trace. Battery level appears on each card if the module provides it.</li>
-      <li><b>Start Recording</b> → perform the walking trial → <b>Stop Recording</b>. If a module drops out, it auto-reconnects (3 attempts) and rejoins the stream.</li>
-      <li><b>Download CSV</b> — one row per sample, with the module identifier in the first column.</li>
-    </ol>
-    <div class="warn" id="btWarn" hidden>
-      This browser does not support Web Bluetooth. Use Chrome or Edge on Android, Windows, macOS or Linux (not iOS/Safari).
-      On Android, enable Location Services (required for BLE scanning).
-    </div>
-    <div class="warn">
-      Tip: if the buttons stay disabled when opened as a local file, serve the page instead:
-      <code>python -m http.server</code> → <code>http://localhost:8000</code>.
-      Keep the tab open for the whole session — Web Bluetooth loses pairings on page reload.
-    </div>
-  </section>
+  <h2>GaitIMU Data Collection Tool</h2>
+  <p>3 × ESP32-C3 + MPU-6050, 200 Hz, Web Bluetooth.</p>
 
-  <section class="card">
-    <h2>Controls</h2>
-    <div class="controls">
-      <button class="btn" id="btnPair"        title="Connect the three modules over BLE">Pair Modules (BLE)</button>
-      <button class="btn" id="btnStartStream" title="Start 200 Hz IMU streaming">▶ Start Streaming</button>
-      <button class="btn" id="btnStopStream"  title="Stop IMU streaming">■ Stop Streaming</button>
-      <button class="btn" id="btnRefresh"     title="Clear the live display and statistics (recorded CSV data is kept)">↻ Refresh Data</button>
-      <button class="btn" id="btnStartRec"    title="Capture streamed samples into the CSV">● Start Recording</button>
-      <button class="btn" id="btnStopRec"     title="Stop capturing samples">■ Stop Recording</button>
-      <button class="btn" id="btnDownload"    title="Save recorded data as .csv">↓ Download CSV</button>
-    </div>
-  </section>
-
-  <div id="globalBar">
-    <span class="pill" id="stConn">not paired</span>
-    <span class="pill stream" id="stStream" hidden>STREAMING</span>
-    <span class="pill rec"    id="stRec"    hidden>● REC</span>
+  <div>
+    <button id="btnPair">Pair Modules (BLE)</button>
+    <button id="btnStartStream" disabled>▶ Start Streaming</button>
+    <button id="btnStopStream" disabled>■ Stop Streaming</button>
+  </div>
+  <div>
+    <button id="btnStartRec" disabled>● Start Recording</button>
+    <button id="btnStopRec" disabled>■ Stop Recording</button>
+    <button id="btnDownload" disabled>↓ Download CSV</button>
   </div>
 
-  <section id="moduleGrid"></section>
+  <div class="status">
+    <strong>Status:</strong> <span id="statusText">Not paired</span><br>
+    <strong>Samples Collected:</strong> <span id="sampleCount">0</span>
+  </div>
 
-  <section class="card">
-    <h2>Recording &amp; data</h2>
-    <div class="statgrid">
-      <div><span class="k">CSV rows (total)</span><span class="v" id="csvRows">0</span></div>
-      <div><span class="k">Session rows</span><span class="v" id="sessRows">0</span></div>
-      <div><span class="k">Session length</span><span class="v" id="sessDur">–</span></div>
-      <div><span class="k">CSV size (approx.)</span><span class="v" id="csvMB">0.0 MB</span></div>
-    </div>
-  </section>
+  <h3>Event Log</h3>
+  <div id="log" class="log"></div>
 
-  <section class="card">
-    <h2>Event log</h2>
-    <div id="logBox"></div>
-  </section>
+  <script>
+    const SERVICE_UUID = '9f000001-8c5a-4e1f-9a7b-3d6e5f0a1b2c';
+    const CMD_UUID     = '9f000002-8c5a-4e1f-9a7b-3d6e5f0a1b2c';
+    const TIME_UUID    = '9f000003-8c5a-4e1f-9a7b-3d6e5f0a1b2c';
+    const DATA_UUID    = '9f000004-8c5a-4e1f-9a7b-3d6e5f0a1b2c';
+    const ID_UUID      = '9f000005-8c5a-4e1f-9a7b-3d6e5f0a1b2c';
 
-</main>
-<footer>Gait data collection tool — 3 × ESP32-C3 + MPU-6050, 200 Hz, Web Bluetooth.
-Battery level only appears if a module exposes a battery service (the ESP32-C3 firmware omits it, so each card shows “–”).
-Rows are interleaved per module;
-sort by <i>unix_time_ms</i> for chronological order. Keep sessions ≤ 15–20 min per trial.</footer>
+    let devices = [];
+    let allSamples = [];
+    let isRecording = false;
+    let lastSeq = {};
 
-<script>
-'use strict';
-/* ══════════ CONFIG — must match the Arduino sketch ══════════ */
-const SERVICE_UUID = '9f000001-8c5a-4e1f-9a7b-3d6e5f0a1b2c';
-const CMD_UUID     = '9f000002-8c5a-4e1f-9a7b-3d6e5f0a1b2c';
-const TIME_UUID    = '9f000003-8c5a-4e1f-9a7b-3d6e5f0a1b2c';
-const DATA_UUID    = '9f000004-8c5a-4e1f-9a7b-3d6e5f0a1b2c';
-const ID_UUID      = '9f000005-8c5a-4e1f-9a7b-3d6e5f0a1b2c';
+    const logEl = document.getElementById('log');
+    const statusEl = document.getElementById('statusText');
+    const countEl = document.getElementById('sampleCount');
 
-const SAMPLE_PERIOD_MS = 5;         /* 200 Hz                                     */
-const ACCEL_LSB_G      = 0.000244;  /* ±8 g      MPU-6050: 4096 LSB/g             */
-const GYRO_LSB_DPS     = 0.0305;    /* ±1000 dps MPU-6050: 32.8 LSB/(°/s)         */
-const SPP_DEFAULT      = 4;         /* firmware SAMPLES_PER_PACKET                */
-const CMD_START = 0x01, CMD_STOP = 0x02, CMD_SET_SPP = 0x03;
-
-const MODULE_LABELS = { RightLeg:'Right Leg', LeftLeg:'Left Leg', Torso:'Torso' };
-const MODULE_COLORS = { RightLeg:'#e11d48',  LeftLeg:'#2563eb',  Torso:'#059669' };
-const LIVE_WINDOW_MS = 4000;        /* live chart window                          */
-const CHART_POINTS   = 1000;        /* live ring buffer length per module         */
-
-/* ══════════ helpers / state ══════════ */
-const $ = id => document.getElementById(id);
-const modules = [], csvRows = [];
-let moduleSeq = 0, busy = false, downloadedUpTo = 0;
-const state = { pairing:false, streaming:false, recording:false, recStart:0, recRows:0 };
-
-function esc(s){ return String(s).replace(/[&<>"']/g,
-  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-function fmtInt(n){ return n.toLocaleString(); }
-
-function log(msg){
-  const t = new Date(), p = n => String(n).padStart(2,'0');
-  const d = document.createElement('div');
-  d.textContent = `[${p(t.getHours())}:${p(t.getMinutes())}:${p(t.getSeconds())}] ${msg}`;
-  const box = $('logBox');
-  box.appendChild(d);
-  while (box.childNodes.length > 250) box.removeChild(box.firstChild);
-  box.scrollTop = box.scrollHeight;
-}
-
-/* cached ISO timestamp — avoids a new Date() + full ISO string per row */
-let _isoSec = -1, _isoPre = '';
-function isoStamp(unixMs) {
-  const s = Math.floor(unixMs / 1000);
-  if (s !== _isoSec) {
-    _isoSec = s;
-    _isoPre = new Date(s * 1000).toISOString().slice(0, 20);
-  }
-  return _isoPre + String(unixMs - s * 1000).padStart(3, '0') + 'Z';
-}
-
-/* ══════════ one BLE module ══════════ */
-class ImuModule {
-  constructor(device, idx){
-    this.device = device; this.idx = idx;
-    this.name = device.name || '(unnamed)';
-    this.id = null;                       /* "RightLeg" / "LeftLeg" / "Torso" */
-    this.connected = false;
-    this.server = null; this.svc = null;
-    this.cmdChar = null; this.timeChar = null; this.dataChar = null;
-    this.batChar = null; this.battery = null; this._battLow = false;
-    this.epochBaseMs = null;              /* device epoch base (host clock)   */
-    this.latencyCompMs = null;            /* clock-sync link latency (ms)     */
-    this._ackResolve = null;
-    this.spp = SPP_DEFAULT; this.sppCap = SPP_DEFAULT; this._fallingBack = false;
-    this.lastSeq = -1; this.lastRelMs = -1; this.lastPacketAt = 0;
-    this._noDataWarned = false;
-    this._autoRunning = false;
-    this.stats = { samples:0, packets:0, dropped:0, bad:0, rate:0, _rateWin:0 };
-    this.liveT = []; this.liveA = [];     /* live chart ring buffers          */
-    this.last = null;
-    this.dom = null;
-    device.addEventListener('gattserverdisconnected', () => this.onDisconnected());
-  }
-  label(){ return MODULE_LABELS[this.id] || this.id || this.name; }
-
-  async connect(){
-    this.server = await this.device.gatt.connect();
-    this.svc     = await this.server.getPrimaryService(SERVICE_UUID);
-    this.cmdChar = await this.svc.getCharacteristic(CMD_UUID);
-    this.timeChar= await this.svc.getCharacteristic(TIME_UUID);
-    this.dataChar= await this.svc.getCharacteristic(DATA_UUID);
-    try {
-      const idc = await this.svc.getCharacteristic(ID_UUID);
-      const v = await idc.readValue();
-      this.id = new TextDecoder().decode(v).replace(/\0/g,'').trim();
-    } catch(e){ /* fall back to the advertised name */ }
-    await this.timeChar.startNotifications();
-    this.timeChar.addEventListener('characteristicvaluechanged', ev => this.onTimeAck(ev));
-    await this.dataChar.startNotifications();
-    this.dataChar.addEventListener('characteristicvaluechanged', ev => this.onData(ev));
-
-    /* Battery Service (optional — shows "–" if the module doesn't expose it) */
-    try {
-      const bs = await this.server.getPrimaryService('battery_service');
-      this.batChar = await bs.getCharacteristic('battery_level');
-      const bv = await this.batChar.readValue();
-      this.battery = bv.getUint8(0);
-      await this.batChar.startNotifications();
-      this.batChar.addEventListener('characteristicvaluechanged', ev => {
-        this.battery = ev.target.value.getUint8(0);
-        if (this.battery < 20 && !this._battLow) {
-          this._battLow = true;
-          log(`⚠ ${this.label()} battery low: ${this.battery} % — recharge soon.`);
-        } else if (this.battery > 25) {
-          this._battLow = false;
-        }
-        updateModuleStats();
-      });
-    } catch (e) { this.battery = null; this.batChar = null; }
-
-    this.connected = true;
-    this.lastPacketAt = performance.now();
-  }
-
-  /* Multi-sample time sync: 4 RTT probes, then a final epoch write using
-     the best (minimum) round-trip as the one-way latency estimate.       */
-  async syncTime(){
-    if (!this.connected) throw new Error('not connected');
-    let bestRtt = Infinity;
-    for (let i = 0; i < 4; i++) {
-      const t0 = performance.now();
-      await this.timeChar.writeValue(new Uint8Array(6).buffer);   /* probe */
-      const ack = await this._waitAck(250);
-      const t1 = performance.now();
-      if (ack !== null && (t1 - t0) < bestRtt) bestRtt = t1 - t0;
-      await new Promise(r => setTimeout(r, 30));
+    function log(msg) {
+      const time = new Date().toLocaleTimeString();
+      logEl.innerHTML += `[${time}] ${msg}\n`;
+      logEl.scrollTop = logEl.scrollHeight;
     }
-    const now = Date.now();                                       /* real sync */
-    const dv = new DataView(new ArrayBuffer(6));
-    dv.setUint32(0, Math.floor(now / 1000), true);
-    dv.setUint16(4, now % 1000, true);
-    await this.timeChar.writeValue(dv.buffer);
-    const ok = await this._waitAck(400);
-    this.latencyCompMs = (ok !== null && bestRtt < Infinity) ? Math.round(bestRtt / 2) : 0;
-    this.epochBaseMs = now + this.latencyCompMs;
-  }
-  _waitAck(ms){
-    return new Promise(res => {
-      const timer = setTimeout(() => { this._ackResolve = null; res(null); }, ms);
-      this._ackResolve = () => { clearTimeout(timer); this._ackResolve = null; res(true); };
-    });
-  }
-  onTimeAck(ev){ if (this._ackResolve) this._ackResolve(); }
 
-  async writeCmd(bytes){
-    if (!this.connected || !this.cmdChar) throw new Error('not connected');
-    await this.cmdChar.writeValue(new Uint8Array(bytes));
-  }
+    // UI Buttons
+    document.getElementById('btnPair').onclick = pairDevices;
+    document.getElementById('btnStartStream').onclick = () => sendCmd(0x01);
+    document.getElementById('btnStopStream').onclick = () => sendCmd(0x02);
+    document.getElementById('btnStartRec').onclick = () => { isRecording = true; log("Recording started"); };
+    document.getElementById('btnStopRec').onclick = () => { isRecording = false; log("Recording stopped"); document.getElementById('btnDownload').disabled = false; };
+    document.getElementById('btnDownload').onclick = downloadCSV;
 
-  async startStream(){
-    if (!this.connected) throw new Error('not connected');
-    this.spp = Math.min(SPP_DEFAULT, this.sppCap);
-    this.lastSeq = -1; this.lastRelMs = -1;
-    this._noDataWarned = false;
-    this.lastPacketAt = performance.now();
-    try { await this.writeCmd([CMD_SET_SPP, this.spp]); } catch(e){ /* best effort */ }
-    await this.writeCmd([CMD_START]);
-  }
-
-  /* DATA packets: [seq][N][tFirst u32 LE] + N×12 bytes (ax ay az gx gy gz) */
-  onData(ev){
-    const dv = ev.target.value;
-    this.lastPacketAt = performance.now();
-    this._noDataWarned = false;
-    if (dv.byteLength < 6){ this.stats.bad++; return; }
-    const n = dv.getUint8(1);
-    if (n < 1 || n > 10){ this.stats.bad++; return; }
-    if (dv.byteLength < 6 + 12*n){          /* truncated -> link MTU too small */
-      this.stats.bad++;
-      this.fallbackToSingle();
-      return;
-    }
-    if (this.epochBaseMs === null){ this.stats.bad++; return; }   /* not synced */
-
-    const seq = dv.getUint8(0);
-    if (this.lastSeq >= 0){
-      const gap = (seq - this.lastSeq - 1) & 0xFF;
-      if (gap > 0 && gap < 128) this.stats.dropped += gap;
-    }
-    this.lastSeq = seq;
-    this.stats.packets++;
-
-    const tFirst = dv.getUint32(2, true);
-    if (this.lastRelMs >= 0 && (tFirst + n*SAMPLE_PERIOD_MS) <= this.lastRelMs){
-      this.stats.bad++; return;             /* stale / out-of-order packet */
-    }
-    this.lastRelMs = tFirst + (n - 1) * SAMPLE_PERIOD_MS;
-
-    for (let i = 0; i < n; i++){
-      const o = 6 + 12*i;
-      const ax = dv.getInt16(o,     true) * ACCEL_LSB_G;
-      const ay = dv.getInt16(o + 2, true) * ACCEL_LSB_G;
-      const az = dv.getInt16(o + 4, true) * ACCEL_LSB_G;
-      const gx = dv.getInt16(o + 6, true) * GYRO_LSB_DPS;
-      const gy = dv.getInt16(o + 8, true) * GYRO_LSB_DPS;
-      const gz = dv.getInt16(o + 10, true) * GYRO_LSB_DPS;
-      const relMs  = tFirst + i * SAMPLE_PERIOD_MS;
-      const unixMs = this.epochBaseMs + relMs;
-      this.stats.samples++; this.stats._rateWin++;
-      this.liveT.push(unixMs);
-      this.liveA.push(Math.sqrt(ax*ax + ay*ay + az*az));
-      if (this.liveT.length > CHART_POINTS){ this.liveT.shift(); this.liveA.shift(); }
-      this.last = { ax, ay, az, gx, gy, gz };
-      if (state.recording) recordSample(this, unixMs, relMs, ax, ay, az, gx, gy, gz);
-    }
-  }
-
-  async fallbackToSingle(){
-    if (this._fallingBack || this.spp <= 1 || !this.connected) return;
-    this._fallingBack = true;
-    this.spp = 1; this.sppCap = 1;
-    try {
-      await this.writeCmd([CMD_SET_SPP, 1]);
-      log(`⚠ ${this.label()}: link cannot carry ${SPP_DEFAULT}-sample packets — switched to 1 sample/packet.`);
-    } catch(e){
-      log(`⚠ ${this.label()}: packet-size switch failed: ${e.message}`);
-    }
-    this._fallingBack = false;
-    updateModuleStats();
-  }
-
-  onDisconnected(){
-    if (!this.connected) return;
-    this.connected = false;
-    this._ackResolve = null;
-    log(`✕ ${this.label()} disconnected.`);
-    updateModulePill(this);
-    updateUI();
-    if (state.streaming && !this._autoRunning) {
-      this._autoRunning = true;
-      this._autoReconnect();
-    }
-  }
-
-  async _autoReconnect(){
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      await new Promise(r => setTimeout(r, attempt * 2000));
-      if (this.connected) break;              /* reconnected manually */
-      try {
-        await this._doReconnect();
-        break;
-      } catch (e) {
-        log(`✕ ${this.label()} auto-reconnect ${attempt}/3 failed: ${e.message}`);
-      }
-    }
-    this._autoRunning = false;
-    if (!this.connected)
-      log(`✕ ${this.label()}: auto-reconnect exhausted — use the Reconnect button.`);
-  }
-
-  async _doReconnect(){
-    log(`… reconnecting ${this.label()}…`);
-    await this.connect();
-    await this.syncTime();                    /* new epoch base (may have rebooted) */
-    if (state.streaming) await this.startStream();
-    log(`✓ ${this.label()} reconnected${state.streaming ? ' and streaming again' : ''}.`);
-    updateModulePill(this);
-    updateUI();
-  }
-
-  async reconnect(){                          /* manual (Reconnect button) */
-    if (this.connected || this._autoRunning) return;
-    try {
-      await this._doReconnect();
-    } catch (e) {
-      this.connected = false;
-      log(`✕ ${this.label()} reconnect failed: ${e.message}`);
-      updateModulePill(this);
-      updateUI();
-    }
-  }
-
-  resetLive(){
-    this.liveT = []; this.liveA = []; this.last = null;
-    this.lastSeq = -1; this.lastRelMs = -1;
-    const s = this.stats;
-    s.samples = s.packets = s.dropped = s.bad = s.rate = s._rateWin = 0;
-  }
-}
-
-/* ══════════ module cards / UI ══════════ */
-function sortModules(){
-  const order = { RightLeg:0, LeftLeg:1, Torso:2 };
-  modules.sort((a,b) =>
-    ((a.id in order) ? order[a.id] : 9) - ((b.id in order) ? order[b.id] : 9));
-}
-function renderModuleCards(){
-  const grid = $('moduleGrid');
-  grid.innerHTML = '';
-  if (modules.length === 0){
-    grid.innerHTML = '<div class="placeholder">No modules paired yet — click “Pair Modules (BLE)” above.</div>';
-    return;
-  }
-  for (const m of modules){
-    const color = MODULE_COLORS[m.id] || '#64748b';
-    const card = document.createElement('div');
-    card.className = 'module-card';
-    card.style.borderTopColor = color;
-    card.innerHTML = `
-      <div class="mod-head">
-        <strong class="mod-name" style="color:${color}">${esc(m.label())}</strong>
-        <span class="pill bad">…</span>
-      </div>
-      <div class="mod-sub">${esc(m.name)} · 200 Hz · MPU-6050</div>
-      <canvas class="chart"></canvas>
-      <div class="mod-stats">
-        <div><span class="k">rate</span><span class="v v-rate">0 Hz</span></div>
-        <div><span class="k">samples</span><span class="v v-samples">0</span></div>
-        <div><span class="k">packets</span><span class="v v-packets">0</span></div>
-        <div><span class="k">lost / bad</span><span class="v v-lost">0 / 0</span></div>
-        <div><span class="k">pkt size</span><span class="v v-spp">–</span></div>
-        <div><span class="k">clock</span><span class="v v-clock">–</span></div>
-        <div><span class="k">battery</span><span class="v v-batt">–</span></div>
-      </div>
-      <div class="mod-latest">no sample yet</div>
-      <button class="btn small btn-recon" style="background:var(--slate)">Reconnect</button>`;
-    m.dom = {
-      pill:   card.querySelector('.pill'),
-      canvas: card.querySelector('.chart'),
-      recon:  card.querySelector('.btn-recon'),
-      els: {
-        rate:    card.querySelector('.v-rate'),
-        samples: card.querySelector('.v-samples'),
-        packets: card.querySelector('.v-packets'),
-        lost:    card.querySelector('.v-lost'),
-        spp:     card.querySelector('.v-spp'),
-        clock:   card.querySelector('.v-clock'),
-        batt:    card.querySelector('.v-batt'),
-        latest:  card.querySelector('.mod-latest'),
-      }
-    };
-    m.dom.recon.addEventListener('click', () => m.reconnect());
-    updateModulePill(m);
-    grid.appendChild(card);
-  }
-  updateModuleStats();
-}
-function updateModulePill(m){
-  if (!m.dom) return;
-  m.dom.pill.textContent = m.connected ? 'Connected' : 'Disconnected';
-  m.dom.pill.className = 'pill ' + (m.connected ? 'ok' : 'bad');
-  m.dom.recon.style.display = m.connected ? 'none' : 'inline-block';
-}
-function updateModuleStats(){
-  for (const m of modules){
-    if (!m.dom) continue;
-    m.dom.els.rate.textContent    = m.stats.rate + ' Hz';
-    m.dom.els.samples.textContent = fmtInt(m.stats.samples);
-    m.dom.els.packets.textContent = fmtInt(m.stats.packets);
-    m.dom.els.lost.textContent    = fmtInt(m.stats.dropped) + ' / ' + fmtInt(m.stats.bad);
-    m.dom.els.spp.textContent     = m.connected ? (m.spp + ' samples') : '–';
-    m.dom.els.clock.textContent   = (m.latencyCompMs !== null) ? ('±' + m.latencyCompMs + ' ms') : 'not synced';
-    m.dom.els.batt.textContent    = (m.battery != null) ? (m.battery + ' %') : '–';
-    m.dom.els.batt.style.color    = (m.battery !== null && m.battery < 20) ? 'var(--red)' : '';
-  }
-}
-function updateUI(){
-  const connected = modules.filter(m => m.connected).length;
-  const opBusy = busy || state.pairing;
-  $('btnPair').disabled        = state.pairing || modules.length >= 3;
-  $('btnStartStream').disabled = opBusy || state.streaming || connected === 0;
-  $('btnStopStream').disabled  = opBusy || !state.streaming;
-  $('btnRefresh').disabled     = modules.length === 0;
-  $('btnStartRec').disabled    = !state.streaming || state.recording;
-  $('btnStopRec').disabled     = !state.recording;
-  $('btnDownload').disabled    = csvRows.length === 0;
-  $('stConn').textContent = modules.length ? (connected + '/' + modules.length + ' connected') : 'not paired';
-  $('stConn').className = 'pill ' + (connected ? 'ok' : (modules.length ? 'bad' : ''));
-  $('stStream').hidden = !state.streaming;
-  $('stRec').hidden = !state.recording;
-}
-function updateRecStats(){
-  $('csvRows').textContent  = fmtInt(csvRows.length);
-  $('sessRows').textContent = fmtInt(state.recRows);
-  $('sessDur').textContent  = state.recording
-      ? ((Date.now() - state.recStart) / 1000).toFixed(0) + ' s'
-      : (state.recStart ? 'stopped' : '–');
-  $('csvMB').textContent = (csvRows.length * 68 / 1048576).toFixed(1) + ' MB';
-}
-function updateLatest(){
-  for (const m of modules){
-    if (!m.dom) continue;
-    const L = m.last;
-    if (!L){ m.dom.els.latest.textContent = 'no sample yet'; continue; }
-    const mag = Math.sqrt(L.ax*L.ax + L.ay*L.ay + L.az*L.az);
-    m.dom.els.latest.textContent =
-      `|a| ${mag.toFixed(2)} g · a(${L.ax.toFixed(2)}, ${L.ay.toFixed(2)}, ${L.az.toFixed(2)}) g` +
-      ` · ω(${L.gx.toFixed(0)}, ${L.gy.toFixed(0)}, ${L.gz.toFixed(0)}) °/s`;
-  }
-}
-
-/* ══════════ live charts (acceleration magnitude, shared y-scale) ══════════ */
-function drawAllCharts(){
-  let yMax = 1;
-  for (const m of modules)
-    for (let i = 0; i < m.liveA.length; i++)
-      if (m.liveA[i] > yMax) yMax = m.liveA[i];
-  yMax = Math.ceil(yMax * 1.15 * 10) / 10;
-  for (const m of modules) drawChart(m, yMax);
-}
-function drawChart(m, yMax){
-  if (!m.dom) return;
-  const cvs = m.dom.canvas;
-  const w = cvs.clientWidth || 300, h = cvs.clientHeight || 96;
-  const dpr = window.devicePixelRatio || 1;
-  if (cvs.width !== Math.round(w*dpr) || cvs.height !== Math.round(h*dpr)){
-    cvs.width = Math.round(w*dpr); cvs.height = Math.round(h*dpr);
-  }
-  const ctx = cvs.getContext('2d');
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, w, h);
-
-  ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 1;      /* grid */
-  for (let g = 1; g <= 3; g++){ const y = (h*g/4)|0;
-    ctx.beginPath(); ctx.moveTo(0, y+.5); ctx.lineTo(w, y+.5); ctx.stroke(); }
-  for (let s = 1; s < 4; s++){ const x = (w*s/4)|0;
-    ctx.beginPath(); ctx.moveTo(x+.5, 0); ctx.lineTo(x+.5, h); ctx.stroke(); }
-
-  const tNow = Date.now(), t0 = tNow - LIVE_WINDOW_MS;
-  const T = m.liveT, A = m.liveA;
-  ctx.strokeStyle = MODULE_COLORS[m.id] || '#64748b';
-  ctx.lineWidth = 2; ctx.lineJoin = 'round';
-  ctx.beginPath();
-  let started = false;
-  for (let i = 0; i < T.length; i++){
-    if (T[i] < t0) continue;
-    const x = (T[i] - t0) / LIVE_WINDOW_MS * w;
-    const y = h - 4 - (A[i] / yMax) * (h - 12);
-    if (!started){ ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
-  }
-  ctx.stroke();
-
-  if (!started){
-    ctx.fillStyle = '#94a3b8'; ctx.font = '12px system-ui'; ctx.textAlign = 'center';
-    ctx.fillText(m.connected ? 'waiting for data…' : 'module disconnected', w/2, h/2 + 4);
-  }
-  ctx.fillStyle = '#64748b'; ctx.font = '10px system-ui'; ctx.textAlign = 'left';
-  ctx.fillText(yMax.toFixed(1) + ' g', 4, 11);
-  ctx.fillText('0 g', 4, h - 4);
-}
-
-/* ══════════ actions ══════════ */
-async function pairModules(){
-  if (state.pairing) return;
-  if (!navigator.bluetooth){
-    alert('This browser does not support Web Bluetooth. Use Chrome or Edge on Android, Windows, macOS or Linux.');
-    return;
-  }
-  state.pairing = true; updateUI();
-  try {
-    while (modules.length < 3){
-      log(`Pairing: choose module ${modules.length + 1} of 3 in the browser dialog…`);
-      const device = await navigator.bluetooth.requestDevice({
-        filters: [{ services: [SERVICE_UUID] }],
-        optionalServices: ['battery_service']     /* needed to read battery level */
-      });
-      if (modules.some(m => m.device.id === device.id)){
-        log('⚠ That module is already paired — choose a different one.');
-        continue;
-      }
-      const mod = new ImuModule(device, moduleSeq++);
-      try {
-        await mod.connect();
-        modules.push(mod);
+    async function pairDevices() {
+      devices = [];
+      const names = ['GaitIMU-Torso', 'GaitIMU-LeftLeg', 'GaitIMU-RightLeg'];
+      
+      for (let name of names) {
         try {
-          await mod.syncTime();
-          log(`✓ Paired ${mod.label()} — clock synced (latency ≈ ` +
-              (mod.latencyCompMs !== null ? mod.latencyCompMs + ' ms' : 'n/a') + ').');
-        } catch(e){
-          log(`✓ Paired ${mod.label()} — but time sync failed: ${e.message}`);
+          log(`Searching for ${name}...`);
+          const device = await navigator.bluetooth.requestDevice({
+            filters: [{ name: name }],
+            optionalServices: [SERVICE_UUID]
+          });
+          
+          device.addEventListener('gattserverdisconnected', () => log(`${name} disconnected`));
+          const server = await device.gatt.connect();
+          const service = await server.getPrimaryService(SERVICE_UUID);
+          
+          const idChar = await service.getCharacteristic(ID_UUID);
+          const idVal = new TextDecoder().decode(await idChar.readValue());
+          
+          const timeChar = await service.getCharacteristic(TIME_UUID);
+          const dataChar = await service.getCharacteristic(DATA_UUID);
+          
+          await syncTime(timeChar);
+          await dataChar.startNotifications();
+          dataChar.addEventListener('characteristicvaluechanged', (e) => handleData(e, idVal));
+          
+          devices.push({ name: idVal, service, timeChar, dataChar, device });
+          log(`Connected to ${idVal}`);
+        } catch (err) {
+          log(`Failed to pair ${name}: ${err.message}`);
         }
-        sortModules();
-        renderModuleCards();
-        updateUI();
-      } catch(e){
-        log(`✕ Could not connect to “${device.name || device.id}”: ${e.message}`);
+      }
+      
+      if (devices.length > 0) {
+        statusEl.innerText = `${devices.length} modules paired`;
+        document.getElementById('btnStartStream').disabled = false;
+        document.getElementById('btnStartRec').disabled = false;
       }
     }
-    log('All modules paired. Click “Start Streaming”.');
-  } catch(e){
-    if (e.name === 'NotFoundError')
-      log(`Pairing cancelled — ${modules.length} module(s) paired. Click “Pair Modules” to add the rest.`);
-    else
-      log('Pairing error: ' + e.message);
-  }
-  state.pairing = false;
-  renderModuleCards();
-  updateUI();
-}
 
-async function startStreaming(){
-  if (busy || state.streaming) return;
-  const active = modules.filter(m => m.connected);
-  if (active.length === 0){ log('⚠ No connected modules — pair first.'); return; }
-  busy = true; updateUI();
-  let ok = 0;
-  for (const m of active){
-    try {
-      if (m.epochBaseMs === null) await m.syncTime();
-      await m.startStream();
-      ok++;
-    } catch(e){
-      log(`✕ ${m.label()}: start failed (${e.message})`);
+    async function syncTime(timeChar) {
+      const now = Date.now();
+      const sec = Math.floor(now / 1000);
+      const ms10 = now % 1000;
+      
+      const buf = new ArrayBuffer(6);
+      const view = new DataView(buf);
+      view.setUint32(0, sec, true);
+      view.setUint16(4, ms10, true);
+      
+      await timeChar.writeValue(buf);
     }
-  }
-  busy = false;
-  if (ok > 0){
-    state.streaming = true;
-    log(`▶ Streaming from ${ok} module(s) at ${Math.round(1000 / SAMPLE_PERIOD_MS)} Hz.`);
-  }
-  updateUI();
-}
 
-async function stopStreaming(){
-  if (busy || !state.streaming) return;
-  busy = true; updateUI();
-  for (const m of modules){
-    if (!m.connected) continue;
-    try { await m.writeCmd([CMD_STOP]); } catch(e){ /* ignore */ }
-  }
-  busy = false;
-  state.streaming = false;
-  log('■ Streaming stopped.');
-  if (state.recording) stopRecording();
-  updateUI();
-}
-
-function refreshData(){
-  for (const m of modules) m.resetLive();
-  drawAllCharts();
-  updateModuleStats();
-  log('↻ Live display & statistics refreshed (recorded CSV data is kept).');
-}
-
-function startRecording(){
-  if (!state.streaming){ log('⚠ Start streaming first.'); return; }
-  state.recording = true;
-  state.recStart = Date.now();
-  state.recRows = 0;
-  log('● Recording started — samples are being added to the CSV.');
-  updateUI(); updateRecStats();
-}
-function stopRecording(){
-  if (!state.recording) return;
-  state.recording = false;
-  const dur = (Date.now() - state.recStart) / 1000;
-  log(`■ Recording stopped: ${fmtInt(state.recRows)} rows in ${dur.toFixed(1)} s ` +
-      `(${Math.round(state.recRows / Math.max(dur, 0.001))} rows/s). CSV now holds ${fmtInt(csvRows.length)} rows.`);
-  updateUI(); updateRecStats();
-}
-
-function recordSample(m, unixMs, relMs, ax, ay, az, gx, gy, gz){
-  csvRows.push(
-    m.label() + ',' + unixMs + ',' + isoStamp(unixMs) + ',' + relMs + ',' +
-    ax.toFixed(4) + ',' + ay.toFixed(4) + ',' + az.toFixed(4) + ',' +
-    gx.toFixed(2) + ',' + gy.toFixed(2) + ',' + gz.toFixed(2)
-  );
-  state.recRows++;
-}
-
-function downloadCsv(){
-  if (csvRows.length === 0){ log('⚠ Nothing recorded yet — no CSV to download.'); return; }
-  const header = 'module,unix_time_ms,timestamp_iso,device_ms,ax_g,ay_g,az_g,gx_dps,gy_dps,gz_dps\n';
-  const blob = new Blob([header, csvRows.join('\n')], { type: 'text/csv' });
-  const d = new Date(), p = n => String(n).padStart(2, '0');
-  const fname = `gait_imu_${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}_` +
-                `${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}.csv`;
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = fname;
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-  downloadedUpTo = csvRows.length;
-  log(`↓ Downloaded ${fmtInt(csvRows.length)} rows → ${fname}`);
-}
-
-/* ══════════ watchdog ══════════ */
-function watchdog(){
-  if (!state.streaming) return;
-  const now = performance.now();
-  for (const m of modules){
-    if (!m.connected) continue;
-    const idle = now - m.lastPacketAt;
-    if (m.spp > 1 && idle > 1200){
-      m.fallbackToSingle();               /* no data -> link MTU too small */
-    } else if (idle > 3000 && !m._noDataWarned){
-      m._noDataWarned = true;
-      log(`⚠ No data from ${m.label()} for 3 s — check power / connection.`);
+    async function sendCmd(cmd) {
+      for (let d of devices) {
+        const cmdChar = await d.service.getCharacteristic(CMD_UUID);
+        await cmdChar.writeValue(new Uint8Array([cmd]));
+      }
+      log(`Sent CMD ${cmd} to all modules`);
+      document.getElementById('btnStopStream').disabled = (cmd === 0x02);
+      document.getElementById('btnStartStream').disabled = (cmd === 0x01);
     }
-  }
-  if (!modules.some(m => m.connected)){
-    state.streaming = false;
-    if (state.recording) stopRecording();
-    log('■ All modules disconnected — streaming stopped.');
-    updateUI();
-  }
-}
 
-/* ══════════ timers & init ══════════ */
-setInterval(() => {
-  for (const m of modules){ m.stats.rate = m.stats._rateWin; m.stats._rateWin = 0; }
-  updateModuleStats(); updateRecStats();
-}, 1000);
-setInterval(() => { drawAllCharts(); updateLatest(); }, 250);   /* 250 ms = lighter */
-setInterval(watchdog, 500);
+    function handleData(event, moduleId) {
+      const value = event.target.value;
+      const view = new DataView(value.buffer);
+      
+      const seq = view.getUint8(0);
+      const N = view.getUint8(1);
+      const tFirst = view.getUint32(2, true); // Device ms since sync
+      
+      // FIX: Track sequence numbers to detect over-the-air drops
+      if (lastSeq[moduleId] !== undefined && seq !== (lastSeq[moduleId] + 1) % 256) {
+        console.warn(`⚠️ DROP on ${moduleId}: expected ${(lastSeq[moduleId] + 1) % 256}, got ${seq}`);
+        log(`⚠️ Packet drop detected on ${moduleId}`);
+      }
+      lastSeq[moduleId] = seq;
 
- $('btnPair').addEventListener('click',        () => pairModules().catch(e => log('Error: ' + e.message)));
- $('btnStartStream').addEventListener('click', () => startStreaming().catch(e => log('Error: ' + e.message)));
- $('btnStopStream').addEventListener('click',  () => stopStreaming().catch(e => log('Error: ' + e.message)));
- $('btnRefresh').addEventListener('click',     refreshData);
- $('btnStartRec').addEventListener('click',    startRecording);
- $('btnStopRec').addEventListener('click',     stopRecording);
- $('btnDownload').addEventListener('click',    downloadCsv);
-window.addEventListener('beforeunload', e => {
-  if (csvRows.length > downloadedUpTo){ e.preventDefault(); e.returnValue = ''; }
-});
+      // Calculate base epoch for this packet
+      // Note: For exact sync, you'd use the round-trip time offset from syncTime(). 
+      // Here we use a simplified offset mapping.
+      const baseEpoch = Date.now() - tFirst; 
 
-if (!navigator.bluetooth) $('btWarn').hidden = false;
-log('Gait IMU Recorder ready. Click “Pair Modules (BLE)” to connect the three sensors.');
-updateUI();
-</script>
+      for (let i = 0; i < N; i++) {
+        const offset = 6 + (i * 12);
+        const ax = view.getInt16(offset + 0, true) * 0.000244;
+        const ay = view.getInt16(offset + 2, true) * 0.000244;
+        const az = view.getInt16(offset + 4, true) * 0.000244;
+        const gx = view.getInt16(offset + 6, true) * 0.0305;
+        const gy = view.getInt16(offset + 8, true) * 0.0305;
+        const gz = view.getInt16(offset + 10, true) * 0.0305;
+        
+        const device_ms = tFirst + (i * 5); // 200Hz = 5ms per sample
+        const unix_time_ms = baseEpoch + device_ms;
+
+        if (isRecording) {
+          allSamples.push({
+            module: moduleId,
+            unix_time_ms: unix_time_ms,
+            device_ms: device_ms,
+            ax_g: ax.toFixed(4),
+            ay_g: ay.toFixed(4),
+            az_g: az.toFixed(4),
+            gx_dps: gx.toFixed(2),
+            gy_dps: gy.toFixed(2),
+            gz_dps: gz.toFixed(2)
+          });
+        }
+      }
+      countEl.innerText = allSamples.length;
+    }
+
+    function downloadCSV() {
+      if (allSamples.length === 0) {
+        alert("No data recorded!");
+        return;
+      }
+
+      // FIX: Sort chronologically before generating CSV to fix out-of-order BLE arrivals
+      allSamples.sort((a, b) => a.unix_time_ms - b.unix_time_ms);
+
+      const header = "module,unix_time_ms,timestamp_iso,device_ms,ax_g,ay_g,az_g,gx_dps,gy_dps,gz_dps\n";
+      const rows = allSamples.map(s => {
+        const iso = new Date(s.unix_time_ms).toISOString();
+        return `${s.module},${s.unix_time_ms},${iso},${s.device_ms},${s.ax_g},${s.ay_g},${s.az_g},${s.gx_dps},${s.gy_dps},${s.gz_dps}`;
+      }).join('\n');
+
+      const blob = new Blob([header + rows], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const dateStr = new Date().toISOString().replace(/[:.]/g, '-');
+      a.download = `gait_imu_${dateStr}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      log("CSV Downloaded successfully");
+    }
+  </script>
 </body>
 </html>
