@@ -66,6 +66,12 @@
     document.getElementById('btnStopRec').onclick = () => { isRecording = false; log("Recording stopped"); document.getElementById('btnDownload').disabled = false; };
     document.getElementById('btnDownload').onclick = downloadCSV;
 
+    // FIX: Update the UI on a timer (every 500ms) instead of on every BLE packet.
+    // This prevents the JS thread from blocking and dropping BLE packets.
+    setInterval(() => {
+      countEl.innerText = allSamples.length;
+    }, 500);
+
     async function pairDevices() {
       devices = [];
       const names = ['GaitIMU-Torso', 'GaitIMU-LeftLeg', 'GaitIMU-RightLeg'];
@@ -135,18 +141,13 @@
       
       const seq = view.getUint8(0);
       const N = view.getUint8(1);
-      const tFirst = view.getUint32(2, true); // Device ms since sync
+      const tFirst = view.getUint32(2, true); 
       
-      // FIX: Track sequence numbers to detect over-the-air drops
       if (lastSeq[moduleId] !== undefined && seq !== (lastSeq[moduleId] + 1) % 256) {
         console.warn(`⚠️ DROP on ${moduleId}: expected ${(lastSeq[moduleId] + 1) % 256}, got ${seq}`);
-        log(`⚠️ Packet drop detected on ${moduleId}`);
       }
       lastSeq[moduleId] = seq;
 
-      // Calculate base epoch for this packet
-      // Note: For exact sync, you'd use the round-trip time offset from syncTime(). 
-      // Here we use a simplified offset mapping.
       const baseEpoch = Date.now() - tFirst; 
 
       for (let i = 0; i < N; i++) {
@@ -158,7 +159,7 @@
         const gy = view.getInt16(offset + 8, true) * 0.0305;
         const gz = view.getInt16(offset + 10, true) * 0.0305;
         
-        const device_ms = tFirst + (i * 5); // 200Hz = 5ms per sample
+        const device_ms = tFirst + (i * 5); 
         const unix_time_ms = baseEpoch + device_ms;
 
         if (isRecording) {
@@ -175,7 +176,7 @@
           });
         }
       }
-      countEl.innerText = allSamples.length;
+      // REMOVED: countEl.innerText = allSamples.length; (Was causing JS thread blocking)
     }
 
     function downloadCSV() {
@@ -184,7 +185,7 @@
         return;
       }
 
-      // FIX: Sort chronologically before generating CSV to fix out-of-order BLE arrivals
+      // FIX: Sort chronologically before generating CSV
       allSamples.sort((a, b) => a.unix_time_ms - b.unix_time_ms);
 
       const header = "module,unix_time_ms,timestamp_iso,device_ms,ax_g,ay_g,az_g,gx_dps,gy_dps,gz_dps\n";
