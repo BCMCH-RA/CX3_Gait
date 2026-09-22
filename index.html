@@ -5,211 +5,89 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>GaitIMU Data Collection</title>
   <style>
-    :root {
-      --bg: #f4f7f6;
-      --card-bg: #ffffff;
-      --text-main: #2d3436;
-      --text-muted: #636e72;
-      --primary: #0984e3;
-      --success: #00b894;
-      --danger: #d63031;
-      --border: #dfe6e9;
-    }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      background-color: var(--bg);
-      color: var(--text-main);
-      margin: 0;
-      padding: 20px;
-      line-height: 1.6;
-    }
+    :root { --bg: #f4f7f6; --card-bg: #ffffff; --text-main: #2d3436; --text-muted: #636e72; --primary: #0984e3; --success: #00b894; --danger: #d63031; --border: #dfe6e9; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: var(--bg); color: var(--text-main); margin: 0; padding: 20px; line-height: 1.6; }
     .container { max-width: 1100px; margin: 0 auto; }
     header { text-align: center; margin-bottom: 20px; }
     header h1 { margin: 0; font-size: 1.8rem; color: var(--primary); }
     header p { margin: 5px 0 0; color: var(--text-muted); font-size: 0.95rem; }
-
-    /* Module Cards */
-    .modules-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 15px;
-      margin-bottom: 20px;
-    }
-    .module-card {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 15px;
-      box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-    }
-    .module-card h3 {
-      margin: 0 0 10px 0;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-size: 1.1rem;
-    }
-    .status-indicator {
-      font-size: 0.8rem;
-      padding: 3px 8px;
-      border-radius: 12px;
-      background: #dfe6e9;
-      color: var(--text-muted);
-    }
+    .modules-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px; margin-bottom: 20px; }
+    .module-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+    .module-card h3 { margin: 0 0 10px 0; display: flex; justify-content: space-between; align-items: center; font-size: 1.1rem; }
+    .status-indicator { font-size: 0.8rem; padding: 3px 8px; border-radius: 12px; background: #dfe6e9; color: var(--text-muted); }
     .status-indicator.connected { background: #d4f4dd; color: #00b894; }
     .status-indicator.streaming { background: #d1e8ff; color: #0984e3; }
-    
     .card-stats { font-size: 0.9rem; color: var(--text-muted); }
     .card-stats span { font-weight: bold; color: var(--text-main); }
-
-    /* Controls & Badges */
-    .controls-panel {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 15px;
-      margin-bottom: 20px;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      align-items: center;
-    }
-    button {
-      padding: 8px 16px;
-      border: none;
-      border-radius: 6px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: opacity 0.2s;
-      font-size: 0.9rem;
-    }
+    .controls-panel { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 15px; margin-bottom: 20px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    button { padding: 8px 16px; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; transition: opacity 0.2s; font-size: 0.9rem; }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
     .btn-pair { background: var(--primary); color: white; }
     .btn-start { background: var(--success); color: white; }
     .btn-stop { background: var(--danger); color: white; }
     .btn-refresh { background: #b2bec3; color: white; }
     .btn-download { background: #6c5ce7; color: white; }
-
     .badges { margin-left: auto; display: flex; gap: 10px; }
-    .badge {
-      padding: 5px 12px;
-      border-radius: 15px;
-      font-size: 0.8rem;
-      font-weight: bold;
-      color: white;
-      display: none;
-    }
+    .badge { padding: 5px 12px; border-radius: 15px; font-size: 0.8rem; font-weight: bold; color: white; display: none; }
     .badge.active { display: inline-block; }
     .badge-stream { background: var(--primary); }
     .badge-rec { background: var(--danger); animation: pulse 1s infinite; }
-    
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-
-    /* Stats Panel */
-    .stats-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-      gap: 15px;
-      margin-bottom: 20px;
-    }
-    .stat-box {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 15px;
-      text-align: center;
-    }
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-bottom: 20px; }
+    .stat-box { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 15px; text-align: center; }
     .stat-val { font-size: 1.4rem; font-weight: bold; color: var(--primary); }
     .stat-lbl { font-size: 0.8rem; color: var(--text-muted); margin-top: 4px; }
-
-    /* Log */
-    .log-container {
-      background: #2d3436;
-      color: #dfe6e9;
-      padding: 15px;
-      border-radius: 10px;
-      height: 180px;
-      overflow-y: auto;
-      font-family: monospace;
-      font-size: 0.85rem;
-      margin-bottom: 20px;
-    }
+    .log-container { background: #2d3436; color: #dfe6e9; padding: 15px; border-radius: 10px; height: 180px; overflow-y: auto; font-family: monospace; font-size: 0.85rem; margin-bottom: 20px; }
     .log-container div { margin-bottom: 4px; }
     .log-time { color: #74b9ff; }
     .log-err { color: #ff7675; }
-
-    .footer-note {
-      text-align: center;
-      font-size: 0.8rem;
-      color: var(--text-muted);
-      margin-top: 20px;
-    }
+    .footer-note { text-align: center; font-size: 0.8rem; color: var(--text-muted); margin-top: 20px; }
   </style>
 </head>
 <body>
-
 <div class="container">
   <header>
     <h1>GaitIMU Data Collection Tool</h1>
     <p>3 × ESP32-C3 + MPU-6050, 200 Hz, Web Bluetooth</p>
   </header>
 
-  <!-- Module Cards -->
   <div class="modules-grid">
-    <div class="module-card" id="card-Torso">
-      <h3>Torso <span class="status-indicator" id="status-Torso">Not Paired</span></h3>
-      <div class="card-stats">Rate: <span id="rate-Torso">–</span> Hz | Battery: <span>–</span></div>
+    <div class="module-card" id="card-T">
+      <h3>Torso (Gait-T) <span class="status-indicator" id="status-T">Not Paired</span></h3>
+      <div class="card-stats">Rate: <span id="rate-T">–</span> Hz | Battery: <span>–</span></div>
     </div>
-    <div class="module-card" id="card-LeftLeg">
-      <h3>Left Leg <span class="status-indicator" id="status-LeftLeg">Not Paired</span></h3>
-      <div class="card-stats">Rate: <span id="rate-LeftLeg">–</span> Hz | Battery: <span>–</span></div>
+    <div class="module-card" id="card-L">
+      <h3>Left Leg (Gait-L) <span class="status-indicator" id="status-L">Not Paired</span></h3>
+      <div class="card-stats">Rate: <span id="rate-L">–</span> Hz | Battery: <span>–</span></div>
     </div>
-    <div class="module-card" id="card-RightLeg">
-      <h3>Right Leg <span class="status-indicator" id="status-RightLeg">Not Paired</span></h3>
-      <div class="card-stats">Rate: <span id="rate-RightLeg">–</span> Hz | Battery: <span>–</span></div>
+    <div class="module-card" id="card-R">
+      <h3>Right Leg (Gait-R) <span class="status-indicator" id="status-R">Not Paired</span></h3>
+      <div class="card-stats">Rate: <span id="rate-R">–</span> Hz | Battery: <span>–</span></div>
     </div>
   </div>
 
-  <!-- Controls -->
   <div class="controls-panel">
     <button id="btnPair" class="btn-pair">Pair Modules (BLE)</button>
     <button id="btnStartStream" class="btn-start" disabled>▶ Start Streaming</button>
     <button id="btnStopStream" class="btn-stop" disabled>■ Stop Streaming</button>
     <button id="btnRefresh" class="btn-refresh">↻ Refresh Data</button>
-    
     <div style="width: 100%; border-top: 1px solid var(--border); margin: 5px 0;"></div>
-    
     <button id="btnStartRec" class="btn-start" disabled>● Start Recording</button>
     <button id="btnStopRec" class="btn-stop" disabled>■ Stop Recording</button>
     <button id="btnDownload" class="btn-download" disabled>↓ Download CSV</button>
-
     <div class="badges">
       <span id="badgeStream" class="badge badge-stream">STREAMING</span>
       <span id="badgeRec" class="badge badge-rec">● REC</span>
     </div>
   </div>
 
-  <!-- Stats -->
   <div class="stats-grid">
-    <div class="stat-box">
-      <div class="stat-val" id="statTotalRows">0</div>
-      <div class="stat-lbl">CSV rows (total)</div>
-    </div>
-    <div class="stat-box">
-      <div class="stat-val" id="statSessionRows">0</div>
-      <div class="stat-lbl">Session rows</div>
-    </div>
-    <div class="stat-box">
-      <div class="stat-val" id="statSessionLength">–</div>
-      <div class="stat-lbl">Session length</div>
-    </div>
-    <div class="stat-box">
-      <div class="stat-val" id="statCsvSize">0.0 MB</div>
-      <div class="stat-lbl">CSV size (approx.)</div>
-    </div>
+    <div class="stat-box"><div class="stat-val" id="statTotalRows">0</div><div class="stat-lbl">CSV rows (total)</div></div>
+    <div class="stat-box"><div class="stat-val" id="statSessionRows">0</div><div class="stat-lbl">Session rows</div></div>
+    <div class="stat-box"><div class="stat-val" id="statSessionLength">–</div><div class="stat-lbl">Session length</div></div>
+    <div class="stat-box"><div class="stat-val" id="statCsvSize">0.0 MB</div><div class="stat-lbl">CSV size (approx.)</div></div>
   </div>
 
-  <!-- Log -->
   <h3 style="margin-bottom: 10px;">Event log</h3>
   <div id="log" class="log-container"></div>
 
@@ -234,7 +112,6 @@
   let sessionStartTime = null;
   let syncOffset = 0; 
 
-  // UI Elements
   const logEl = document.getElementById('log');
   const btnPair = document.getElementById('btnPair');
   const btnStartStream = document.getElementById('btnStartStream');
@@ -243,7 +120,6 @@
   const btnStartRec = document.getElementById('btnStartRec');
   const btnStopRec = document.getElementById('btnStopRec');
   const btnDownload = document.getElementById('btnDownload');
-  
   const badgeStream = document.getElementById('badgeStream');
   const badgeRec = document.getElementById('badgeRec');
 
@@ -258,50 +134,28 @@
   function updateStats() {
     document.getElementById('statTotalRows').innerText = allSamples.length.toLocaleString();
     document.getElementById('statSessionRows').innerText = allSamples.length.toLocaleString();
-    
     if (allSamples.length > 0 && sessionStartTime) {
       const elapsed = (Date.now() - sessionStartTime) / 1000;
-      const mins = Math.floor(elapsed / 60);
-      const secs = Math.floor(elapsed % 60);
-      document.getElementById('statSessionLength').innerText = `${mins}m ${secs}s`;
-      
-      const sizeMB = (allSamples.length * 110) / (1024 * 1024);
-      document.getElementById('statCsvSize').innerText = sizeMB.toFixed(1) + ' MB';
+      document.getElementById('statSessionLength').innerText = `${Math.floor(elapsed / 60)}m ${Math.floor(elapsed % 60)}s`;
+      document.getElementById('statCsvSize').innerText = ((allSamples.length * 110) / (1024 * 1024)).toFixed(1) + ' MB';
     } else {
       document.getElementById('statSessionLength').innerText = '–';
       document.getElementById('statCsvSize').innerText = '0.0 MB';
     }
   }
-
   setInterval(updateStats, 1000);
 
-  // FIX: Synchronous pairing to preserve Web Bluetooth "User Gesture" context
+  // FIX: Synchronous pairing calls preserve the "user gesture" context for all 3 dialogs
   btnPair.onclick = () => {
     log("⏳ Preparing 3 pairing dialogs. Please select each module as they appear...");
     
-    // We must call requestDevice synchronously for all 3 devices.
-    // If we await the connection of the first device before calling requestDevice 
-    // for the second, the browser loses the "user gesture" context and blocks the request.
-    
-    const pRight = navigator.bluetooth.requestDevice({
-      filters: [{ name: 'GaitIMU-RightLeg' }],
-      optionalServices: [SERVICE_UUID]
-    }).catch(e => { log(`❌ RightLeg selection failed: ${e.message}`, true); return null; });
+    const pT = navigator.bluetooth.requestDevice({ filters: [{ name: 'Gait-T' }], optionalServices: [SERVICE_UUID] }).catch(e => { log(`❌ Torso selection failed: ${e.message}`, true); return null; });
+    const pL = navigator.bluetooth.requestDevice({ filters: [{ name: 'Gait-L' }], optionalServices: [SERVICE_UUID] }).catch(e => { log(`❌ Left Leg selection failed: ${e.message}`, true); return null; });
+    const pR = navigator.bluetooth.requestDevice({ filters: [{ name: 'Gait-R' }], optionalServices: [SERVICE_UUID] }).catch(e => { log(`❌ Right Leg selection failed: ${e.message}`, true); return null; });
 
-    const pLeft = navigator.bluetooth.requestDevice({
-      filters: [{ name: 'GaitIMU-LeftLeg' }],
-      optionalServices: [SERVICE_UUID]
-    }).catch(e => { log(`❌ LeftLeg selection failed: ${e.message}`, true); return null; });
-
-    const pTorso = navigator.bluetooth.requestDevice({
-      filters: [{ name: 'GaitIMU-Torso' }],
-      optionalServices: [SERVICE_UUID]
-    }).catch(e => { log(`❌ Torso selection failed: ${e.message}`, true); return null; });
-
-    // Process them as they resolve
-    pRight.then(device => device && connectDevice(device, 'RightLeg'));
-    pLeft.then(device => device && connectDevice(device, 'LeftLeg'));
-    pTorso.then(device => device && connectDevice(device, 'Torso'));
+    pT.then(device => device && connectDevice(device, 'T'));
+    pL.then(device => device && connectDevice(device, 'L'));
+    pR.then(device => device && connectDevice(device, 'R'));
   };
 
   async function connectDevice(device, moduleId) {
@@ -340,30 +194,17 @@
 
   btnStartStream.onclick = () => sendCmd(0x01);
   btnStopStream.onclick = () => sendCmd(0x02);
-  btnRefresh.onclick = () => {
-    allSamples = [];
-    sessionStartTime = null;
-    updateStats();
-    log("Session data cleared.");
-  };
+  btnRefresh.onclick = () => { allSamples = []; sessionStartTime = null; updateStats(); log("Session data cleared."); };
   
   btnStartRec.onclick = () => {
-    isRecording = true;
-    sessionStartTime = Date.now();
-    syncOffset = Date.now(); // Anchor timestamp calculation
-    badgeRec.classList.add('active');
-    btnStartRec.disabled = true;
-    btnStopRec.disabled = false;
-    btnDownload.disabled = true;
+    isRecording = true; sessionStartTime = Date.now(); syncOffset = Date.now();
+    badgeRec.classList.add('active'); btnStartRec.disabled = true; btnStopRec.disabled = false; btnDownload.disabled = true;
     log("Recording started...");
   };
   
   btnStopRec.onclick = () => {
-    isRecording = false;
-    badgeRec.classList.remove('active');
-    btnStartRec.disabled = false;
-    btnStopRec.disabled = true;
-    btnDownload.disabled = false; 
+    isRecording = false; badgeRec.classList.remove('active');
+    btnStartRec.disabled = false; btnStopRec.disabled = true; btnDownload.disabled = false; 
     log("Recording stopped. Ready to download CSV.");
   };
   
@@ -378,21 +219,15 @@
       if (streaming) el.classList.add('streaming');
       else if (status === 'Connected') el.classList.add('connected');
     }
-    if (rateEl) {
-      rateEl.innerText = streaming ? '200' : '–';
-    }
+    if (rateEl) rateEl.innerText = streaming ? '200' : '–';
   }
 
   async function syncTime(timeChar) {
     const now = Date.now();
-    const sec = Math.floor(now / 1000);
-    const ms10 = now % 1000;
-    
     const buf = new ArrayBuffer(6);
     const view = new DataView(buf);
-    view.setUint32(0, sec, true);
-    view.setUint16(4, ms10, true);
-    
+    view.setUint32(0, Math.floor(now / 1000), true);
+    view.setUint16(4, now % 1000, true);
     await timeChar.writeValue(buf);
   }
 
@@ -401,19 +236,14 @@
       const cmdChar = await d.service.getCharacteristic(CMD_UUID);
       await cmdChar.writeValue(new Uint8Array([cmd]));
     }
-    
     if (cmd === 0x01) {
-      isStreaming = true;
-      badgeStream.classList.add('active');
-      btnStartStream.disabled = true;
-      btnStopStream.disabled = false;
+      isStreaming = true; badgeStream.classList.add('active');
+      btnStartStream.disabled = true; btnStopStream.disabled = false;
       devices.forEach(d => updateCardStatus(d.name, 'Streaming', true));
       log("Streaming started on all modules.");
     } else if (cmd === 0x02) {
-      isStreaming = false;
-      badgeStream.classList.remove('active');
-      btnStartStream.disabled = false;
-      btnStopStream.disabled = true;
+      isStreaming = false; badgeStream.classList.remove('active');
+      btnStartStream.disabled = false; btnStopStream.disabled = true;
       devices.forEach(d => updateCardStatus(d.name, 'Connected', false));
       log("Streaming stopped.");
     }
@@ -422,7 +252,6 @@
   function handleData(event, moduleId) {
     const value = event.target.value;
     const view = new DataView(value.buffer);
-    
     const seq = view.getUint8(0);
     const N = view.getUint8(1);
     const tFirst = view.getUint32(2, true); 
@@ -445,40 +274,22 @@
       const unix_time_ms = syncOffset + device_ms; 
 
       if (isRecording) {
-        allSamples.push({
-          module: moduleId,
-          unix_time_ms: unix_time_ms,
-          device_ms: device_ms,
-          ax_g: ax.toFixed(4),
-          ay_g: ay.toFixed(4),
-          az_g: az.toFixed(4),
-          gx_dps: gx.toFixed(2),
-          gy_dps: gy.toFixed(2),
-          gz_dps: gz.toFixed(2)
-        });
+        allSamples.push({ module: moduleId, unix_time_ms, device_ms, ax_g: ax.toFixed(4), ay_g: ay.toFixed(4), az_g: az.toFixed(4), gx_dps: gx.toFixed(2), gy_dps: gy.toFixed(2), gz_dps: gz.toFixed(2) });
       }
     }
   }
 
   function downloadCSV() {
-    if (allSamples.length === 0) {
-      alert("No data recorded!");
-      return;
-    }
-
+    if (allSamples.length === 0) { alert("No data recorded!"); return; }
     log("Sorting data chronologically...");
     allSamples.sort((a, b) => a.unix_time_ms - b.unix_time_ms);
     log("Generating CSV file...");
 
     const blobParts = ["module,unix_time_ms,timestamp_iso,device_ms,ax_g,ay_g,az_g,gx_dps,gy_dps,gz_dps\n"];
     const chunkSize = 10000;
-    
     for (let i = 0; i < allSamples.length; i += chunkSize) {
       const chunk = allSamples.slice(i, i + chunkSize);
-      const rows = chunk.map(s => {
-        const iso = new Date(s.unix_time_ms).toISOString();
-        return `${s.module},${s.unix_time_ms},${iso},${s.device_ms},${s.ax_g},${s.ay_g},${s.az_g},${s.gx_dps},${s.gy_dps},${s.gz_dps}`;
-      }).join('\n') + '\n';
+      const rows = chunk.map(s => `${s.module},${s.unix_time_ms},${new Date(s.unix_time_ms).toISOString()},${s.device_ms},${s.ax_g},${s.ay_g},${s.az_g},${s.gx_dps},${s.gy_dps},${s.gz_dps}`).join('\n') + '\n';
       blobParts.push(rows);
     }
 
@@ -486,13 +297,11 @@
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    const dateStr = new Date().toISOString().replace(/[:.]/g, '-');
-    a.download = `gait_imu_${dateStr}.csv`;
+    a.download = `gait_imu_${new Date().toISOString().replace(/[:.]/g, '-')}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    
     log(`✅ CSV Downloaded successfully (${allSamples.length.toLocaleString()} rows).`);
   }
 </script>
