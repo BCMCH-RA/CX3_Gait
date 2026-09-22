@@ -37,4 +37,273 @@
     .stat-box { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 15px; text-align: center; }
     .stat-val { font-size: 1.4rem; font-weight: bold; color: var(--primary); }
     .stat-lbl { font-size: 0.8rem; color: var(--text-muted); margin-top: 4px; }
-    .log-container { background: #2d3436; color: #dfe6e9; padding: 15px; border-radius: 10px; height: 180px; overflow-y: auto; font-family: monospace; font-size: 0.85rem; margin-bottom: 
+    .log-container { background: #2d3436; color: #dfe6e9; padding: 15px; border-radius: 10px; height: 180px; overflow-y: auto; font-family: monospace; font-size: 0.85rem; margin-bottom: 20px; }
+    .log-container div { margin-bottom: 4px; }
+    .log-time { color: #74b9ff; }
+    .log-err { color: #ff7675; }
+    .footer-note { text-align: center; font-size: 0.8rem; color: var(--text-muted); margin-top: 20px; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>GaitIMU Data Collection Tool</h1>
+    <p>3 × ESP32-C3 + MPU-6050, 200 Hz, Web Bluetooth</p>
+  </header>
+
+  <div class="modules-grid">
+    <div class="module-card" id="card-T">
+      <h3>Torso (Gait-T) <span class="status-indicator" id="status-T">Not Paired</span></h3>
+      <div class="card-stats">Rate: <span id="rate-T">–</span> Hz | Battery: <span>–</span></div>
+    </div>
+    <div class="module-card" id="card-L">
+      <h3>Left Leg (Gait-L) <span class="status-indicator" id="status-L">Not Paired</span></h3>
+      <div class="card-stats">Rate: <span id="rate-L">–</span> Hz | Battery: <span>–</span></div>
+    </div>
+    <div class="module-card" id="card-R">
+      <h3>Right Leg (Gait-R) <span class="status-indicator" id="status-R">Not Paired</span></h3>
+      <div class="card-stats">Rate: <span id="rate-R">–</span> Hz | Battery: <span>–</span></div>
+    </div>
+  </div>
+
+  <div class="controls-panel">
+    <button id="btnPair" class="btn-pair">Pair Modules (BLE)</button>
+    <button id="btnStartStream" class="btn-start" disabled>▶ Start Streaming</button>
+    <button id="btnStopStream" class="btn-stop" disabled>■ Stop Streaming</button>
+    <button id="btnRefresh" class="btn-refresh">↻ Refresh Data</button>
+    <div style="width: 100%; border-top: 1px solid var(--border); margin: 5px 0;"></div>
+    <button id="btnStartRec" class="btn-start" disabled>● Start Recording</button>
+    <button id="btnStopRec" class="btn-stop" disabled>■ Stop Recording</button>
+    <button id="btnDownload" class="btn-download" disabled>↓ Download CSV</button>
+    <div class="badges">
+      <span id="badgeStream" class="badge badge-stream">STREAMING</span>
+      <span id="badgeRec" class="badge badge-rec">● REC</span>
+    </div>
+  </div>
+
+  <div class="stats-grid">
+    <div class="stat-box"><div class="stat-val" id="statTotalRows">0</div><div class="stat-lbl">CSV rows (total)</div></div>
+    <div class="stat-box"><div class="stat-val" id="statSessionRows">0</div><div class="stat-lbl">Session rows</div></div>
+    <div class="stat-box"><div class="stat-val" id="statSessionLength">–</div><div class="stat-lbl">Session length</div></div>
+    <div class="stat-box"><div class="stat-val" id="statCsvSize">0.0 MB</div><div class="stat-lbl">CSV size (approx.)</div></div>
+  </div>
+
+  <h3 style="margin-bottom: 10px;">Event log</h3>
+  <div id="log" class="log-container"></div>
+
+  <div class="footer-note">
+    Battery level only appears if a module exposes a battery service (the ESP32-C3 firmware omits it, so each card shows "–").<br>
+    Rows are interleaved per module; sort by unix_time_ms for chronological order. Keep sessions ≤ 15–20 min per trial.
+  </div>
+</div>
+
+<script>
+  const SERVICE_UUID = '9f000001-8c5a-4e1f-9a7b-3d6e5f0a1b2c';
+  const CMD_UUID     = '9f000002-8c5a-4e1f-9a7b-3d6e5f0a1b2c';
+  const TIME_UUID    = '9f000003-8c5a-4e1f-9a7b-3d6e5f0a1b2c';
+  const DATA_UUID    = '9f000004-8c5a-4e1f-9a7b-3d6e5f0a1b2c';
+  const ID_UUID      = '9f000005-8c5a-4e1f-9a7b-3d6e5f0a1b2c';
+
+  let devices = [];
+  let allSamples = [];
+  let isRecording = false;
+  let isStreaming = false;
+  let lastSeq = {};
+  let sessionStartTime = null;
+  let syncOffset = 0; 
+
+  const logEl = document.getElementById('log');
+  const btnPair = document.getElementById('btnPair');
+  const btnStartStream = document.getElementById('btnStartStream');
+  const btnStopStream = document.getElementById('btnStopStream');
+  const btnRefresh = document.getElementById('btnRefresh');
+  const btnStartRec = document.getElementById('btnStartRec');
+  const btnStopRec = document.getElementById('btnStopRec');
+  const btnDownload = document.getElementById('btnDownload');
+  const badgeStream = document.getElementById('badgeStream');
+  const badgeRec = document.getElementById('badgeRec');
+
+  function log(msg, isError = false) {
+    const time = new Date().toLocaleTimeString();
+    const div = document.createElement('div');
+    div.innerHTML = `<span class="log-time">[${time}]</span> <span class="${isError ? 'log-err' : ''}">${msg}</span>`;
+    logEl.appendChild(div);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function updateStats() {
+    document.getElementById('statTotalRows').innerText = allSamples.length.toLocaleString();
+    document.getElementById('statSessionRows').innerText = allSamples.length.toLocaleString();
+    if (allSamples.length > 0 && sessionStartTime) {
+      const elapsed = (Date.now() - sessionStartTime) / 1000;
+      document.getElementById('statSessionLength').innerText = `${Math.floor(elapsed / 60)}m ${Math.floor(elapsed % 60)}s`;
+      document.getElementById('statCsvSize').innerText = ((allSamples.length * 110) / (1024 * 1024)).toFixed(1) + ' MB';
+    } else {
+      document.getElementById('statSessionLength').innerText = '–';
+      document.getElementById('statCsvSize').innerText = '0.0 MB';
+    }
+  }
+  setInterval(updateStats, 1000);
+
+  // FIX: Synchronous pairing calls preserve the "user gesture" context for all 3 dialogs
+  btnPair.onclick = () => {
+    log("⏳ Preparing 3 pairing dialogs. Please select each module as they appear...");
+    
+    const pT = navigator.bluetooth.requestDevice({ filters: [{ name: 'Gait-T' }], optionalServices: [SERVICE_UUID] }).catch(e => { log(`❌ Torso selection failed: ${e.message}`, true); return null; });
+    const pL = navigator.bluetooth.requestDevice({ filters: [{ name: 'Gait-L' }], optionalServices: [SERVICE_UUID] }).catch(e => { log(`❌ Left Leg selection failed: ${e.message}`, true); return null; });
+    const pR = navigator.bluetooth.requestDevice({ filters: [{ name: 'Gait-R' }], optionalServices: [SERVICE_UUID] }).catch(e => { log(`❌ Right Leg selection failed: ${e.message}`, true); return null; });
+
+    pT.then(device => device && connectDevice(device, 'T'));
+    pL.then(device => device && connectDevice(device, 'L'));
+    pR.then(device => device && connectDevice(device, 'R'));
+  };
+
+  async function connectDevice(device, moduleId) {
+    try {
+      log(`Connecting to ${moduleId}...`);
+      device.addEventListener('gattserverdisconnected', () => {
+        log(`⚠️ ${moduleId} disconnected`, true);
+        updateCardStatus(moduleId, 'Disconnected', false);
+      });
+      
+      const server = await device.gatt.connect();
+      const service = await server.getPrimaryService(SERVICE_UUID);
+      
+      const idChar = await service.getCharacteristic(ID_UUID);
+      const idVal = new TextDecoder().decode(await idChar.readValue());
+      
+      const timeChar = await service.getCharacteristic(TIME_UUID);
+      const dataChar = await service.getCharacteristic(DATA_UUID);
+      
+      await syncTime(timeChar);
+      await dataChar.startNotifications();
+      dataChar.addEventListener('characteristicvaluechanged', (e) => handleData(e, idVal));
+      
+      devices.push({ name: idVal, service, timeChar, dataChar, device });
+      updateCardStatus(moduleId, 'Connected', false);
+      log(`✅ Connected to ${idVal}`);
+      
+      if (devices.length > 0) {
+        btnStartStream.disabled = false;
+        btnStartRec.disabled = false;
+      }
+    } catch (err) {
+      log(`❌ Failed to connect ${moduleId}: ${err.message}`, true);
+    }
+  }
+
+  btnStartStream.onclick = () => sendCmd(0x01);
+  btnStopStream.onclick = () => sendCmd(0x02);
+  btnRefresh.onclick = () => { allSamples = []; sessionStartTime = null; updateStats(); log("Session data cleared."); };
+  
+  btnStartRec.onclick = () => {
+    isRecording = true; sessionStartTime = Date.now(); syncOffset = Date.now();
+    badgeRec.classList.add('active'); btnStartRec.disabled = true; btnStopRec.disabled = false; btnDownload.disabled = true;
+    log("Recording started...");
+  };
+  
+  btnStopRec.onclick = () => {
+    isRecording = false; badgeRec.classList.remove('active');
+    btnStartRec.disabled = false; btnStopRec.disabled = true; btnDownload.disabled = false; 
+    log("Recording stopped. Ready to download CSV.");
+  };
+  
+  btnDownload.onclick = downloadCSV;
+
+  function updateCardStatus(moduleId, status, streaming) {
+    const el = document.getElementById(`status-${moduleId}`);
+    const rateEl = document.getElementById(`rate-${moduleId}`);
+    if (el) {
+      el.innerText = status;
+      el.className = 'status-indicator';
+      if (streaming) el.classList.add('streaming');
+      else if (status === 'Connected') el.classList.add('connected');
+    }
+    if (rateEl) rateEl.innerText = streaming ? '200' : '–';
+  }
+
+  async function syncTime(timeChar) {
+    const now = Date.now();
+    const buf = new ArrayBuffer(6);
+    const view = new DataView(buf);
+    view.setUint32(0, Math.floor(now / 1000), true);
+    view.setUint16(4, now % 1000, true);
+    await timeChar.writeValue(buf);
+  }
+
+  async function sendCmd(cmd) {
+    for (let d of devices) {
+      const cmdChar = await d.service.getCharacteristic(CMD_UUID);
+      await cmdChar.writeValue(new Uint8Array([cmd]));
+    }
+    if (cmd === 0x01) {
+      isStreaming = true; badgeStream.classList.add('active');
+      btnStartStream.disabled = true; btnStopStream.disabled = false;
+      devices.forEach(d => updateCardStatus(d.name, 'Streaming', true));
+      log("Streaming started on all modules.");
+    } else if (cmd === 0x02) {
+      isStreaming = false; badgeStream.classList.remove('active');
+      btnStartStream.disabled = false; btnStopStream.disabled = true;
+      devices.forEach(d => updateCardStatus(d.name, 'Connected', false));
+      log("Streaming stopped.");
+    }
+  }
+
+  function handleData(event, moduleId) {
+    const value = event.target.value;
+    const view = new DataView(value.buffer);
+    const seq = view.getUint8(0);
+    const N = view.getUint8(1);
+    const tFirst = view.getUint32(2, true); 
+    
+    if (lastSeq[moduleId] !== undefined && seq !== (lastSeq[moduleId] + 1) % 256) {
+      console.warn(`⚠️ DROP on ${moduleId}: expected ${(lastSeq[moduleId] + 1) % 256}, got ${seq}`);
+    }
+    lastSeq[moduleId] = seq;
+
+    for (let i = 0; i < N; i++) {
+      const offset = 6 + (i * 12);
+      const ax = view.getInt16(offset + 0, true) * 0.000244;
+      const ay = view.getInt16(offset + 2, true) * 0.000244;
+      const az = view.getInt16(offset + 4, true) * 0.000244;
+      const gx = view.getInt16(offset + 6, true) * 0.0305;
+      const gy = view.getInt16(offset + 8, true) * 0.0305;
+      const gz = view.getInt16(offset + 10, true) * 0.0305;
+      
+      const device_ms = tFirst + (i * 5); 
+      const unix_time_ms = syncOffset + device_ms; 
+
+      if (isRecording) {
+        allSamples.push({ module: moduleId, unix_time_ms, device_ms, ax_g: ax.toFixed(4), ay_g: ay.toFixed(4), az_g: az.toFixed(4), gx_dps: gx.toFixed(2), gy_dps: gy.toFixed(2), gz_dps: gz.toFixed(2) });
+      }
+    }
+  }
+
+  function downloadCSV() {
+    if (allSamples.length === 0) { alert("No data recorded!"); return; }
+    log("Sorting data chronologically...");
+    allSamples.sort((a, b) => a.unix_time_ms - b.unix_time_ms);
+    log("Generating CSV file...");
+
+    const blobParts = ["module,unix_time_ms,timestamp_iso,device_ms,ax_g,ay_g,az_g,gx_dps,gy_dps,gz_dps\n"];
+    const chunkSize = 10000;
+    for (let i = 0; i < allSamples.length; i += chunkSize) {
+      const chunk = allSamples.slice(i, i + chunkSize);
+      const rows = chunk.map(s => `${s.module},${s.unix_time_ms},${new Date(s.unix_time_ms).toISOString()},${s.device_ms},${s.ax_g},${s.ay_g},${s.az_g},${s.gx_dps},${s.gy_dps},${s.gz_dps}`).join('\n') + '\n';
+      blobParts.push(rows);
+    }
+
+    const blob = new Blob(blobParts, { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `gait_imu_${new Date().toISOString().replace(/[:.]/g, '-')}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    log(`✅ CSV Downloaded successfully (${allSamples.length.toLocaleString()} rows).`);
+  }
+</script>
+</body>
+</html>
