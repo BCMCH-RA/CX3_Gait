@@ -1,347 +1,350 @@
-/* ============================================================================
-   GaitIMU XIAO ESP32-C3 — 200 Hz BLE IMU streamer (MPU-6050)
-   Board: Seeed XIAO ESP32-C3 + MPU-6050 breakout
-   Libraries: "esp32" Arduino core by Espressif (bundles ESP32 BLE Arduino + Wire)
-   
-   Wiring (MPU-6050 -> XIAO ESP32-C3):
-   VCC -> 3V3 (MPU-6050 is 3.3 V ONLY — never 5 V)
-   GND -> GND
-   SDA -> D4 (GPIO6)
-   SCL -> D5 (GPIO7)
-   AD0 -> GND (I2C address 0x68)
-   ========================================================================== */
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GaitIMU Data Collection</title>
+  <style>
+    :root { --bg: #f4f7f6; --card-bg: #ffffff; --text-main: #2d3436; --text-muted: #636e72; --primary: #0984e3; --success: #00b894; --danger: #d63031; --border: #dfe6e9; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: var(--bg); color: var(--text-main); margin: 0; padding: 20px; line-height: 1.6; }
+    .container { max-width: 1100px; margin: 0 auto; }
+    header { text-align: center; margin-bottom: 20px; }
+    header h1 { margin: 0; font-size: 1.8rem; color: var(--primary); }
+    header p { margin: 5px 0 0; color: var(--text-muted); font-size: 0.95rem; }
+    .modules-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px; margin-bottom: 20px; }
+    .module-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+    .module-card h3 { margin: 0 0 10px 0; display: flex; justify-content: space-between; align-items: center; font-size: 1.1rem; }
+    .status-indicator { font-size: 0.8rem; padding: 3px 8px; border-radius: 12px; background: #dfe6e9; color: var(--text-muted); }
+    .status-indicator.connected { background: #d4f4dd; color: #00b894; }
+    .status-indicator.streaming { background: #d1e8ff; color: #0984e3; }
+    .card-stats { font-size: 0.9rem; color: var(--text-muted); }
+    .card-stats span { font-weight: bold; color: var(--text-main); }
+    .card-pair { margin-top: 10px; width: 100%; }
+    .controls-panel { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 15px; margin-bottom: 20px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    button { padding: 8px 16px; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; transition: opacity 0.2s; font-size: 0.9rem; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-pair { background: var(--primary); color: white; }
+    .btn-start { background: var(--success); color: white; }
+    .btn-stop { background: var(--danger); color: white; }
+    .btn-refresh { background: #b2bec3; color: white; }
+    .btn-download { background: #6c5ce7; color: white; }
+    .badges { margin-left: auto; display: flex; gap: 10px; }
+    .badge { padding: 5px 12px; border-radius: 15px; font-size: 0.8rem; font-weight: bold; color: white; display: none; }
+    .badge.active { display: inline-block; }
+    .badge-stream { background: var(--primary); }
+    .badge-rec { background: var(--danger); animation: pulse 1s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-bottom: 20px; }
+    .stat-box { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 15px; text-align: center; }
+    .stat-val { font-size: 1.4rem; font-weight: bold; color: var(--primary); }
+    .stat-lbl { font-size: 0.8rem; color: var(--text-muted); margin-top: 4px; }
+    .log-container { background: #2d3436; color: #dfe6e9; padding: 15px; border-radius: 10px; height: 180px; overflow-y: auto; font-family: monospace; font-size: 0.85rem; margin-bottom: 20px; }
+    .log-container div { margin-bottom: 4px; }
+    .log-time { color: #74b9ff; }
+    .log-err { color: #ff7675; }
+    .footer-note { text-align: center; font-size: 0.8rem; color: var(--text-muted); margin-top: 20px; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>GaitIMU Data Collection Tool</h1>
+    <p>3 × ESP32-C3 + MPU-6050, 200 Hz, Web Bluetooth</p>
+  </header>
 
-#include <Wire.h>
-#include <string.h>
-#include <BLEDevice.h>
-#include <BLEServer.h>
-#include <BLEUtils.h>
-#include <BLE2902.h>
+  <div class="modules-grid">
+    <div class="module-card" id="card-T">
+      <h3>Torso (Gait-T) <span class="status-indicator" id="status-T">Not Paired</span></h3>
+      <div class="card-stats">Rate: <span id="rate-T">–</span> Hz | Battery: <span>–</span></div>
+      <button id="btnPairT" class="btn-pair card-pair">Pair Torso</button>
+    </div>
+    <div class="module-card" id="card-L">
+      <h3>Left Leg (Gait-L) <span class="status-indicator" id="status-L">Not Paired</span></h3>
+      <div class="card-stats">Rate: <span id="rate-L">–</span> Hz | Battery: <span>–</span></div>
+      <button id="btnPairL" class="btn-pair card-pair">Pair Left Leg</button>
+    </div>
+    <div class="module-card" id="card-R">
+      <h3>Right Leg (Gait-R) <span class="status-indicator" id="status-R">Not Paired</span></h3>
+      <div class="card-stats">Rate: <span id="rate-R">–</span> Hz | Battery: <span>–</span></div>
+      <button id="btnPairR" class="btn-pair card-pair">Pair Right Leg</button>
+    </div>
+  </div>
 
-/* ───────── USER CONFIG — set per module before flashing ───────── */
-#define MODULE_ID "Torso" // "RightLeg" | "LeftLeg" | "Torso"
-/* ──────────────────────────────────────────────────────────────── */
-#define DEVICE_NAME "GaitIMU-" MODULE_ID
+  <div class="controls-panel">
+    <button id="btnStartStream" class="btn-start" disabled>▶ Start Streaming</button>
+    <button id="btnStopStream" class="btn-stop" disabled>■ Stop Streaming</button>
+    <button id="btnRefresh" class="btn-refresh">↻ Refresh Data</button>
+    <div style="width: 100%; border-top: 1px solid var(--border); margin: 5px 0;"></div>
+    <button id="btnStartRec" class="btn-start" disabled>● Start Recording</button>
+    <button id="btnStopRec" class="btn-stop" disabled>■ Stop Recording</button>
+    <button id="btnDownload" class="btn-download" disabled>↓ Download CSV</button>
+    <div class="badges">
+      <span id="badgeStream" class="badge badge-stream">STREAMING</span>
+      <span id="badgeRec" class="badge badge-rec">● REC</span>
+    </div>
+  </div>
 
-/* XIAO ESP32-C3 I2C pins: SDA = D4 (GPIO6), SCL = D5 (GPIO7) */
-#define I2C_SDA 6
-#define I2C_SCL 7
-#define I2C_SPEED 400000 // drop to 100000 if the bus is unreliable
-#define MPU_ADDR 0x68    // 0x69 if AD0 is tied high
+  <div class="stats-grid">
+    <div class="stat-box"><div class="stat-val" id="statTotalRows">0</div><div class="stat-lbl">CSV rows (total)</div></div>
+    <div class="stat-box"><div class="stat-val" id="statSessionRows">0</div><div class="stat-lbl">Session rows</div></div>
+    <div class="stat-box"><div class="stat-val" id="statSessionLength">–</div><div class="stat-lbl">Session length</div></div>
+    <div class="stat-box"><div class="stat-val" id="statCsvSize">0.0 MB</div><div class="stat-lbl">CSV size (approx.)</div></div>
+  </div>
 
-/* Status LED: XIAO's onboard LED is a WS2812 NeoPixel (GPIO8) — not usable
-   with digitalWrite. Leave -1, or point it at a free GPIO with an external
-   LED (active low if to a transistor / active high to 3V3). */
-#define MODULE_LED -1
-#define LED_ACTIVE_LOW 1
+  <h3 style="margin-bottom: 10px;">Event log</h3>
+  <div id="log" class="log-container"></div>
 
-/* Sampling / packetisation */
-#define SAMPLE_RATE_HZ 200
-#define SAMPLE_PERIOD_MS (1000 / SAMPLE_RATE_HZ)
+  <div class="footer-note">
+    Pair each module from its own card. The browser discovers devices by the GaitIMU service UUID
+    (which is in the primary advertisement), then identifies Torso / Left / Right from the module's
+    ID characteristic — so picking the wrong dialog no longer matters.<br>
+    Battery level only appears if a module exposes a battery service (the ESP32-C3 firmware omits it).<br>
+    Rows are interleaved per module; sort by unix_time_ms for chronological order. Keep sessions ≤ 15–20 min per trial.
+  </div>
+</div>
 
-// FIX: Increased from 10 to 20 samples per packet
-// This reduces BLE notifications from 20/s to 10/s per module (30/s total across 3 modules)
-// Web Bluetooth handles this rate without dropping packets
-#define MAX_SAMPLES_PER_PACKET 20
-#define SAMPLES_PER_PACKET 20
+<script>
+  const SERVICE_UUID = '9f000001-8c5a-4e1f-9a7b-3d6e5f0a1b2c';
+  const CMD_UUID     = '9f000002-8c5a-4e1f-9a7b-3d6e5f0a1b2c';
+  const TIME_UUID    = '9f000003-8c5a-4e1f-9a7b-3d6e5f0a1b2c';
+  const DATA_UUID    = '9f000004-8c5a-4e1f-9a7b-3d6e5f0a1b2c';
+  const ID_UUID      = '9f000005-8c5a-4e1f-9a7b-3d6e5f0a1b2c';
 
-#define MAX_PACKET_LEN (6 + 12 * MAX_SAMPLES_PER_PACKET)
+  let devices = [];          // { name, device, syncOffset, truncWarned }
+  let allSamples = [];
+  let isRecording = false;
+  let isStreaming = false;
+  let lastSeq = {};
+  let sessionStartTime = null;
 
-/* BLE UUIDs — must match index.html */
-#define GAIT_SERVICE_UUID "9f000001-8c5a-4e1f-9a7b-3d6e5f0a1b2c"
-#define CMD_CHAR_UUID     "9f000002-8c5a-4e1f-9a7b-3d6e5f0a1b2c"
-#define TIME_CHAR_UUID    "9f000003-8c5a-4e1f-9a7b-3d6e5f0a1b2c"
-#define DATA_CHAR_UUID    "9f000004-8c5a-4e1f-9a7b-3d6e5f0a1b2c"
-#define ID_CHAR_UUID      "9f000005-8c5a-4e1f-9a7b-3d6e5f0a1b2c"
+  const logEl = document.getElementById('log');
+  const btnStartStream = document.getElementById('btnStartStream');
+  const btnStopStream = document.getElementById('btnStopStream');
+  const btnRefresh = document.getElementById('btnRefresh');
+  const btnStartRec = document.getElementById('btnStartRec');
+  const btnStopRec = document.getElementById('btnStopRec');
+  const btnDownload = document.getElementById('btnDownload');
+  const badgeStream = document.getElementById('badgeStream');
+  const badgeRec = document.getElementById('badgeRec');
 
-#define CMD_START   0x01
-#define CMD_STOP    0x02
-#define CMD_SET_SPP 0x03
-
-/* MPU-6050 registers */
-#define REG_WHO_AM_I       0x75
-#define REG_CONFIG         0x1A
-#define REG_GYRO_CONFIG    0x1B
-#define REG_ACCEL_CONFIG   0x1C
-#define REG_SMPLRT_DIV     0x19
-#define REG_PWR_MGMT_1     0x6B
-#define REG_PWR_MGMT_2     0x6C
-#define REG_ACCEL_XOUT_H   0x3B
-
-#define VAL_CONFIG         0x01 // DLPF 184 Hz -> internal 1 kHz rate
-#define VAL_GYRO_CONFIG    0x10 // ±1000 dps (FS_SEL = 2)
-#define VAL_ACCEL_CONFIG   0x10 // ±8 g (AFS_SEL = 2)
-#define VAL_SMPLRT_DIV     4    // 1 kHz / (1 + 4) = 200 Hz
-
-/* ── BLE objects ── */
-static BLEService* gaitService = nullptr;
-static BLECharacteristic* cmdChar = nullptr;
-static BLECharacteristic* timeChar = nullptr;
-static BLECharacteristic* dataChar = nullptr;
-static BLECharacteristic* idChar = nullptr;
-static BLEAdvertising* advertising = nullptr;
-static bool deviceConnected = false;
-
-/* ── streaming state ── */
-bool streaming = false;
-uint32_t syncMillis = 0;
-uint32_t nextSampleMs = 0;
-uint8_t samplesPerPacket = SAMPLES_PER_PACKET;
-uint8_t packetSeq = 0;
-uint8_t packetFill = 0;
-uint32_t packetT0 = 0;
-uint8_t packetBuf[MAX_PACKET_LEN];
-
-/* ── stats ── */
-uint32_t smpCount = 0;
-uint32_t pktCount = 0;
-uint32_t i2cErrors = 0;
-uint32_t i2cFailStreak = 0;
-uint32_t statLast = 0;
-
-/* ══ I2C helpers ══ */
-static uint8_t readReg(uint8_t r) {
-  Wire.beginTransmission(MPU_ADDR);
-  Wire.write(r);
-  if (Wire.endTransmission(false) != 0) return 0;
-  Wire.requestFrom((int)MPU_ADDR, (int)1);
-  if (Wire.available() < 1) return 0;
-  uint8_t v = (uint8_t)Wire.read();
-  while (Wire.available()) Wire.read();
-  return v;
-}
-
-static void writeReg(uint8_t r, uint8_t v) {
-  Wire.beginTransmission(MPU_ADDR);
-  Wire.write(r);
-  Wire.write(v);
-  Wire.endTransmission(true);
-}
-
-static bool hwReadSample(int16_t acc[3], int16_t gyr[3]) {
-  uint8_t b[14]; /* ACCEL_X..Z(6) TEMP(2) GYRO_X..Z(6) */
-  Wire.beginTransmission(MPU_ADDR);
-  Wire.write(REG_ACCEL_XOUT_H);
-  if (Wire.endTransmission(false) != 0) return false;
-  Wire.requestFrom((int)MPU_ADDR, (int)14);
-  if (Wire.available() < 14) return false;
-  for (int i = 0; i < 14; i++) b[i] = (uint8_t)Wire.read();
-  
-  acc[0] = (int16_t)((uint16_t)(b[0] << 8) | b[1]);
-  acc[1] = (int16_t)((uint16_t)(b[2] << 8) | b[3]);
-  acc[2] = (int16_t)((uint16_t)(b[4] << 8) | b[5]);
-  gyr[0] = (int16_t)((uint16_t)(b[8] << 8) | b[9]);
-  gyr[1] = (int16_t)((uint16_t)(b[10] << 8) | b[11]);
-  gyr[2] = (int16_t)((uint16_t)(b[12] << 8) | b[13]);
-  return true;
-}
-
-/* ══ MPU-6050 bring-up ══ */
-static bool imuInit() {
-  Wire.begin(I2C_SDA, I2C_SCL, I2C_SPEED);
-  delay(50);
-  writeReg(REG_PWR_MGMT_1, 0x80); /* device reset */
-  delay(150);
-  
-  uint8_t who = readReg(REG_WHO_AM_I);
-  Serial.print("[IMU] WHO_AM_I = 0x");
-  Serial.println(who, HEX);
-  if (who != 0x68 && who != 0x70) { /* 0x70 = MPU-6000 family too */
-    Serial.println("[IMU] *** MPU-6050 not seen on I2C — check SDA/SCL wiring ***");
-    return false;
+  function log(msg, isError = false) {
+    const time = new Date().toLocaleTimeString();
+    const div = document.createElement('div');
+    div.innerHTML = `<span class="log-time">[${time}]</span> <span class="${isError ? 'log-err' : ''}">${msg}</span>`;
+    logEl.appendChild(div);
+    logEl.scrollTop = logEl.scrollHeight;
   }
-  
-  writeReg(REG_PWR_MGMT_1, 0x01); /* wake, PLL X-gyro clock */
-  writeReg(REG_PWR_MGMT_2, 0x00); /* all axes enabled */
-  writeReg(REG_SMPLRT_DIV, VAL_SMPLRT_DIV);
-  writeReg(REG_CONFIG, VAL_CONFIG);
-  writeReg(REG_GYRO_CONFIG, VAL_GYRO_CONFIG);
-  writeReg(REG_ACCEL_CONFIG, VAL_ACCEL_CONFIG);
-  delay(50);
-  
-  Serial.print("[IMU] GYRO_CONFIG = 0x");
-  Serial.println(readReg(REG_GYRO_CONFIG), HEX);
-  Serial.print("[IMU] ACCEL_CONFIG = 0x");
-  Serial.println(readReg(REG_ACCEL_CONFIG), HEX);
-  return true;
-}
 
-/* ══ packet build / send ══ */
-static void flushPacket() {
-  if (packetFill == 0) return;
-  packetBuf[0] = packetSeq++;
-  packetBuf[1] = packetFill;
-  memcpy(&packetBuf[2], &packetT0, 4);
-  dataChar->setValue(packetBuf, 6 + 12 * packetFill);
-  
-  if (deviceConnected) {
-    // FIX: notify() returns void in ESP32 BLE library v3.x, so just call it directly
-    dataChar->notify();
-  }
-  packetFill = 0;
-  pktCount++;
-}
-
-static void addSample(uint32_t sampleMs) {
-  int16_t acc[3], gyr[3];
-  if (!hwReadSample(acc, gyr)) {
-    i2cErrors++; i2cFailStreak++;
-    if (i2cFailStreak > 50) { /* bus wedged — re-initialise it */
-      i2cFailStreak = 0;
-      Wire.begin(I2C_SDA, I2C_SCL, I2C_SPEED);
+  function updateStats() {
+    document.getElementById('statTotalRows').innerText = allSamples.length.toLocaleString();
+    document.getElementById('statSessionRows').innerText = allSamples.length.toLocaleString();
+    if (allSamples.length > 0 && sessionStartTime) {
+      const elapsed = (Date.now() - sessionStartTime) / 1000;
+      document.getElementById('statSessionLength').innerText = `${Math.floor(elapsed / 60)}m ${Math.floor(elapsed % 60)}s`;
+      document.getElementById('statCsvSize').innerText = ((allSamples.length * 110) / (1024 * 1024)).toFixed(1) + ' MB';
+    } else {
+      document.getElementById('statSessionLength').innerText = '–';
+      document.getElementById('statCsvSize').innerText = '0.0 MB';
     }
-    return;
   }
-  i2cFailStreak = 0;
-  
-  if (packetFill == 0) packetT0 = sampleMs - syncMillis;
-  
-  uint8_t* p = &packetBuf[6 + 12 * packetFill];
-  memcpy(p, acc, 6);
-  memcpy(p + 6, gyr, 6);
-  packetFill++;
-  smpCount++;
-  
-  if (packetFill >= samplesPerPacket) flushPacket();
-}
+  setInterval(updateStats, 1000);
 
-/* ══ BLE callbacks ══ */
-class GaitServerCallbacks : public BLEServerCallbacks {
-  void onConnect(BLEServer*) override {
-    deviceConnected = true;
-    Serial.println("[BLE] central connected");
-  }
-  void onDisconnect(BLEServer*) override {
-    deviceConnected = false;
-    streaming = false;
-    packetFill = 0;
-    Serial.println("[BLE] central disconnected — advertising again");
-    advertising->start();
-  }
-};
+  function getDevice(name) { return devices.find(d => d.name === name); }
 
-class GaitCmdCallbacks : public BLECharacteristicCallbacks {
-  void onWrite(BLECharacteristic* c) override {
-    String v = c->getValue();
-    if (v.length() == 0) return;
-    switch ((uint8_t)v[0]) {
-      case CMD_START:
-        if (!streaming) {
-          packetFill = 0; packetSeq = 0;
-          nextSampleMs = millis() + 2;
-          streaming = true;
-          Serial.println("[CMD] streaming started");
-        }
-        break;
-      case CMD_STOP:
-        if (streaming) {
-          streaming = false;
-          flushPacket();
-          Serial.println("[CMD] streaming stopped");
-        }
-        break;
-      case CMD_SET_SPP: {
-        uint8_t n = v.length() >= 2 ? (uint8_t)v[1] : 0;
-        flushPacket();
-        samplesPerPacket = (n >= 1 && n <= MAX_SAMPLES_PER_PACKET) ? n : 1;
-        Serial.print("[CMD] samples/packet = ");
-        Serial.println(samplesPerPacket);
-        break;
+  // Runs once: Web Bluetooth feature/secure-context check.
+  if (!('bluetooth' in navigator)) {
+    log('❌ navigator.bluetooth is unavailable. Open this page over https:// or http://localhost (file:// is not a secure context).', true);
+  } else {
+    log('✓ Web Bluetooth available. Pair a module from its card.');
+  }
+
+  // Pair API requires its own user activation per call, so each module gets
+  // its own button. Discover by SERVICE UUID (primary advertisement packet),
+  // then identify the module via its ID characteristic.
+  async function pair(expectId, buttonEl) {
+    if (getDevice(expectId)) { log(`⚠️ ${expectId} is already paired.`); return; }
+    buttonEl.disabled = true;
+    buttonEl.innerText = 'Selecting…';
+    try {
+      const device = await navigator.bluetooth.requestDevice({
+        filters: [{ services: [SERVICE_UUID] }],   // service UUID lives in the PRIMARY advertisement
+        optionalServices: [SERVICE_UUID]
+      });
+
+      device.addEventListener('gattserverdisconnected', () => {
+        log(`⚠️ ${expectId} disconnected`, true);
+        updateCardStatus(expectId, 'Disconnected', false);
+      });
+
+      const server = await device.gatt.connect();
+      const service = await server.getPrimaryService(SERVICE_UUID);
+      const idChar = await service.getCharacteristic(ID_UUID);
+      const idVal = new TextDecoder().decode(await idChar.readValue()).trim();
+      const timeChar = await service.getCharacteristic(TIME_UUID);
+      const dataChar = await service.getCharacteristic(DATA_UUID);
+
+      const mod = { name: idVal, device, service, syncOffset: 0, truncWarned: false };
+      await syncTime(mod, timeChar);
+      await dataChar.startNotifications();
+      dataChar.addEventListener('characteristicvaluechanged', (e) => handleData(e, idVal));
+
+      devices.push(mod);
+      updateCardStatus(idVal, 'Connected', false);
+      log(`✅ Paired ${idVal} (${device.name})`);
+      if (!isStreaming) { btnStartStream.disabled = false; btnStartRec.disabled = false; }
+    } catch (err) {
+      if (err.name === 'NotFoundError') {
+        log(`❌ No “Gait-${expectId}” found nearby. Is the module powered and advertising, and is no other app connected to it?`, true);
+      } else {
+        log(`❌ ${expectId} pairing failed: ${err.message}`, true);
+      }
+    } finally {
+      buttonEl.disabled = false;
+      buttonEl.innerText = `Pair ${expectId}`;
+    }
+  }
+
+  document.getElementById('btnPairT').onclick = () => pair('T', document.getElementById('btnPairT'));
+  document.getElementById('btnPairL').onclick = () => pair('L', document.getElementById('btnPairL'));
+  document.getElementById('btnPairR').onclick = () => pair('R', document.getElementById('btnPairR'));
+
+  btnStartStream.onclick = () => sendCmd(0x01);
+  btnStopStream.onclick = () => sendCmd(0x02);
+  btnRefresh.onclick = () => { allSamples = []; sessionStartTime = null; updateStats(); log("Session data cleared."); };
+
+  btnStartRec.onclick = async () => {
+    isRecording = true;
+    // Re-sync every module's clock right before recording starts, so all
+    // modules share one epoch for the new trial.
+    for (const d of devices) {
+      const timeChar = await d.service.getCharacteristic(TIME_UUID);
+      await syncTime(d, timeChar);
+    }
+    sessionStartTime = Date.now();
+    badgeRec.classList.add('active');
+    btnStartRec.disabled = true; btnStopRec.disabled = false; btnDownload.disabled = true;
+    log("Recording started — clocks re-synced.");
+  };
+
+  btnStopRec.onclick = () => {
+    isRecording = false; badgeRec.classList.remove('active');
+    btnStartRec.disabled = false; btnStopRec.disabled = true; btnDownload.disabled = false;
+    log("Recording stopped. Ready to download CSV.");
+  };
+
+  btnDownload.onclick = downloadCSV;
+
+  function updateCardStatus(moduleId, status, streaming) {
+    const el = document.getElementById(`status-${moduleId}`);
+    const rateEl = document.getElementById(`rate-${moduleId}`);
+    if (el) {
+      el.innerText = status;
+      el.className = 'status-indicator';
+      if (streaming) el.classList.add('streaming');
+      else if (status === 'Connected') el.classList.add('connected');
+    }
+    if (rateEl) rateEl.innerText = streaming ? '200' : '–';
+  }
+
+  // Writes the host epoch (unix millis as sec + sub-ms10) to the module.
+  // The module counts every packet's t0 from the instant it receives this
+  // write; we capture that same instant here as syncOffset so
+  // unix = moduleOffset + device_ms is correct to within BLE latency.
+  async function syncTime(mod, timeChar) {
+    const now = Date.now();
+    const buf = new ArrayBuffer(6);
+    const view = new DataView(buf);
+    view.setUint32(0, Math.floor(now / 1000), true);
+    view.setUint16(4, now % 1000, true);
+    await timeChar.writeValue(buf);
+    mod.syncOffset = now;
+  }
+
+  async function sendCmd(cmd) {
+    for (let d of devices) {
+      const cmdChar = await d.service.getCharacteristic(CMD_UUID);
+      await cmdChar.writeValue(new Uint8Array([cmd]));
+    }
+    if (cmd === 0x01) {
+      isStreaming = true; badgeStream.classList.add('active');
+      btnStartStream.disabled = true; btnStopStream.disabled = false;
+      devices.forEach(d => updateCardStatus(d.name, 'Streaming', true));
+      log("Streaming started on all modules.");
+    } else if (cmd === 0x02) {
+      isStreaming = false; badgeStream.classList.remove('active');
+      btnStartStream.disabled = false; btnStopStream.disabled = true;
+      devices.forEach(d => updateCardStatus(d.name, 'Connected', false));
+      log("Streaming stopped.");
+    }
+  }
+
+  function handleData(event, moduleId) {
+    const mod = getDevice(moduleId);
+    if (!mod) return;
+    const view = new DataView(event.target.value.buffer, event.target.value.byteOffset, event.target.value.byteLength);
+    const seq = view.getUint8(0);
+    const N = view.getUint8(1);
+
+    // Guard against MTU truncation: if the negotiated MTU is too small the
+    // notification arrives trimmed and the full parse below would throw.
+    if (view.byteLength < 6 + 12 * N) {
+      if (!mod.truncWarned) {
+        mod.truncWarned = true;
+        log(`⚠️ ${moduleId}: packet truncated to ${view.byteLength} bytes (MTU too small for ${N} samples). Flash firmware with BLEDevice::setMTU(517) or reduce samples/packet.`, true);
+      }
+      return;
+    }
+
+    const tFirst = view.getUint32(2, true);
+
+    if (lastSeq[moduleId] !== undefined && seq !== (lastSeq[moduleId] + 1) % 256) {
+      console.warn(`⚠️ DROP on ${moduleId}: expected ${(lastSeq[moduleId] + 1) % 256}, got ${seq}`);
+    }
+    lastSeq[moduleId] = seq;
+
+    for (let i = 0; i < N; i++) {
+      const offset = 6 + (i * 12);
+      const ax = view.getInt16(offset + 0, true) * 0.000244;
+      const ay = view.getInt16(offset + 2, true) * 0.000244;
+      const az = view.getInt16(offset + 4, true) * 0.000244;
+      const gx = view.getInt16(offset + 6, true) * 0.0305;
+      const gy = view.getInt16(offset + 8, true) * 0.0305;
+      const gz = view.getInt16(offset + 10, true) * 0.0305;
+
+      const device_ms = tFirst + (i * 5);                      // ms since that module's time-sync
+      const unix_time_ms = mod.syncOffset + device_ms;         // host epoch
+
+      if (isRecording) {
+        allSamples.push({ module: moduleId, unix_time_ms, device_ms, ax_g: ax.toFixed(4), ay_g: ay.toFixed(4), az_g: az.toFixed(4), gx_dps: gx.toFixed(2), gy_dps: gy.toFixed(2), gz_dps: gz.toFixed(2) });
       }
     }
   }
-};
 
-class GaitTimeCallbacks : public BLECharacteristicCallbacks {
-  void onWrite(BLECharacteristic* c) override {
-    String v = c->getValue();
-    if (v.length() != 6) return; /* 6-byte probe or real epoch */
-    uint32_t sec; uint16_t ms10;
-    memcpy(&sec, v.c_str(), 4);
-    memcpy(&ms10, v.c_str() + 4, 2);
-    syncMillis = millis();
-    uint32_t rel = millis() - syncMillis;
-    uint8_t ack[4];
-    memcpy(ack, &rel, 4);
-    c->setValue(ack, 4);
-    c->notify();
-    Serial.print("[TIME] epoch ");
-    Serial.print(sec);
-    Serial.print('.');
-    Serial.println(ms10);
-  }
-};
+  function downloadCSV() {
+    if (allSamples.length === 0) { alert("No data recorded!"); return; }
+    log("Sorting data chronologically...");
+    allSamples.sort((a, b) => a.unix_time_ms - b.unix_time_ms);
+    log("Generating CSV file...");
 
-/* ══ setup / loop ══ */
-void setup() {
-  Serial.begin(115200);
-  delay(300);
-  Serial.println();
-  Serial.println("GaitIMU XIAO ESP32-C3 node: " DEVICE_NAME);
-
-#if MODULE_LED >= 0
-  pinMode(MODULE_LED, OUTPUT);
-  digitalWrite(MODULE_LED, LED_ACTIVE_LOW ? HIGH : LOW);
-#endif
-
-  bool imuOk = imuInit();
-  if (!imuOk) Serial.println("[IMU] *** streaming will produce no samples ***");
-
-  /* BLE setup */
-  BLEDevice::init(DEVICE_NAME);
-  BLEServer* server = BLEDevice::createServer();
-  server->setCallbacks(new GaitServerCallbacks());
-
-  gaitService = server->createService(GAIT_SERVICE_UUID);
-
-  idChar = gaitService->createCharacteristic(ID_CHAR_UUID,
-      BLECharacteristic::PROPERTY_READ);
-  cmdChar = gaitService->createCharacteristic(CMD_CHAR_UUID,
-      BLECharacteristic::PROPERTY_WRITE);
-  timeChar = gaitService->createCharacteristic(TIME_CHAR_UUID,
-      BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_NOTIFY);
-  dataChar = gaitService->createCharacteristic(DATA_CHAR_UUID,
-      BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
-
-  timeChar->addDescriptor(new BLE2902());
-  dataChar->addDescriptor(new BLE2902());
-
-  cmdChar->setCallbacks(new GaitCmdCallbacks());
-  timeChar->setCallbacks(new GaitTimeCallbacks());
-  idChar->setValue((uint8_t*)MODULE_ID, strlen(MODULE_ID));
-
-  gaitService->start();
-  advertising = server->getAdvertising();
-  advertising->addServiceUUID(GAIT_SERVICE_UUID);
-  advertising->setScanResponse(true);
-  advertising->start();
-  Serial.println("Advertising as " DEVICE_NAME " — waiting for a connection…");
-}
-
-void loop() {
-  if (streaming) {
-    /* 200 Hz sampling loop (back-to-back reads while behind schedule) */
-    uint32_t now = millis();
-    if ((int32_t)(now - nextSampleMs) > 100) nextSampleMs = now;
-    while ((int32_t)(nextSampleMs - now) <= 0) {
-      addSample(nextSampleMs);
-      nextSampleMs += SAMPLE_PERIOD_MS;
+    const blobParts = ["module,unix_time_ms,timestamp_iso,device_ms,ax_g,ay_g,az_g,gx_dps,gy_dps,gz_dps\n"];
+    const chunkSize = 10000;
+    for (let i = 0; i < allSamples.length; i += chunkSize) {
+      const chunk = allSamples.slice(i, i + chunkSize);
+      const rows = chunk.map(s => `${s.module},${s.unix_time_ms},${new Date(s.unix_time_ms).toISOString()},${s.device_ms},${s.ax_g},${s.ay_g},${s.az_g},${s.gx_dps},${s.gy_dps},${s.gz_dps}`).join('\n') + '\n';
+      blobParts.push(rows);
     }
-  }
 
-#if MODULE_LED >= 0
-  static uint32_t lastBlink = 0;
-  if (millis() - lastBlink > 500) {
-    lastBlink = millis();
-    digitalWrite(MODULE_LED, !digitalRead(MODULE_LED));
+    const blob = new Blob(blobParts, { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `gait_imu_${new Date().toISOString().replace(/[:.]/g, '-')}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    log(`✅ CSV Downloaded successfully (${allSamples.length.toLocaleString()} rows).`);
   }
-#endif
-
-  if (millis() - statLast >= 1000) {
-    statLast = millis();
-    Serial.print("[STAT] samples="); Serial.print(smpCount);
-    Serial.print(" packets="); Serial.print(pktCount);
-    Serial.print(" i2cErrors="); Serial.println(i2cErrors);
-  }
-  delay(1);
-}
+</script>
+</body>
+</html>
