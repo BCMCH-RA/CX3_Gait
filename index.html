@@ -19,6 +19,7 @@
     .status-indicator.streaming { background: #d1e8ff; color: #0984e3; }
     .card-stats { font-size: 0.9rem; color: var(--text-muted); }
     .card-stats span { font-weight: bold; color: var(--text-main); }
+    .card-pair { margin-top: 10px; width: 100%; }
     .controls-panel { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 15px; margin-bottom: 20px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
     button { padding: 8px 16px; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; transition: opacity 0.2s; font-size: 0.9rem; }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -55,19 +56,21 @@
     <div class="module-card" id="card-T">
       <h3>Torso (Gait-T) <span class="status-indicator" id="status-T">Not Paired</span></h3>
       <div class="card-stats">Rate: <span id="rate-T">–</span> Hz | Battery: <span>–</span></div>
+      <button id="btnPairT" class="btn-pair card-pair">Pair Torso</button>
     </div>
     <div class="module-card" id="card-L">
       <h3>Left Leg (Gait-L) <span class="status-indicator" id="status-L">Not Paired</span></h3>
       <div class="card-stats">Rate: <span id="rate-L">–</span> Hz | Battery: <span>–</span></div>
+      <button id="btnPairL" class="btn-pair card-pair">Pair Left Leg</button>
     </div>
     <div class="module-card" id="card-R">
       <h3>Right Leg (Gait-R) <span class="status-indicator" id="status-R">Not Paired</span></h3>
       <div class="card-stats">Rate: <span id="rate-R">–</span> Hz | Battery: <span>–</span></div>
+      <button id="btnPairR" class="btn-pair card-pair">Pair Right Leg</button>
     </div>
   </div>
 
   <div class="controls-panel">
-    <button id="btnPair" class="btn-pair">Pair Modules (BLE)</button>
     <button id="btnStartStream" class="btn-start" disabled>▶ Start Streaming</button>
     <button id="btnStopStream" class="btn-stop" disabled>■ Stop Streaming</button>
     <button id="btnRefresh" class="btn-refresh">↻ Refresh Data</button>
@@ -92,7 +95,10 @@
   <div id="log" class="log-container"></div>
 
   <div class="footer-note">
-    Battery level only appears if a module exposes a battery service (the ESP32-C3 firmware omits it, so each card shows "–").<br>
+    Pair each module from its own card. The browser discovers devices by the GaitIMU service UUID
+    (which is in the primary advertisement), then identifies Torso / Left / Right from the module's
+    ID characteristic — so picking the wrong dialog no longer matters.<br>
+    Battery level only appears if a module exposes a battery service (the ESP32-C3 firmware omits it).<br>
     Rows are interleaved per module; sort by unix_time_ms for chronological order. Keep sessions ≤ 15–20 min per trial.
   </div>
 </div>
@@ -104,16 +110,14 @@
   const DATA_UUID    = '9f000004-8c5a-4e1f-9a7b-3d6e5f0a1b2c';
   const ID_UUID      = '9f000005-8c5a-4e1f-9a7b-3d6e5f0a1b2c';
 
-  let devices = [];
+  let devices = [];          // { name, device, syncOffset, truncWarned }
   let allSamples = [];
   let isRecording = false;
   let isStreaming = false;
   let lastSeq = {};
   let sessionStartTime = null;
-  let syncOffset = 0; 
 
   const logEl = document.getElementById('log');
-  const btnPair = document.getElementById('btnPair');
   const btnStartStream = document.getElementById('btnStartStream');
   const btnStopStream = document.getElementById('btnStopStream');
   const btnRefresh = document.getElementById('btnRefresh');
@@ -145,69 +149,89 @@
   }
   setInterval(updateStats, 1000);
 
-  // FIX: Synchronous pairing calls preserve the "user gesture" context for all 3 dialogs
-  btnPair.onclick = () => {
-    log("⏳ Preparing 3 pairing dialogs. Please select each module as they appear...");
-    
-    const pT = navigator.bluetooth.requestDevice({ filters: [{ name: 'Gait-T' }], optionalServices: [SERVICE_UUID] }).catch(e => { log(`❌ Torso selection failed: ${e.message}`, true); return null; });
-    const pL = navigator.bluetooth.requestDevice({ filters: [{ name: 'Gait-L' }], optionalServices: [SERVICE_UUID] }).catch(e => { log(`❌ Left Leg selection failed: ${e.message}`, true); return null; });
-    const pR = navigator.bluetooth.requestDevice({ filters: [{ name: 'Gait-R' }], optionalServices: [SERVICE_UUID] }).catch(e => { log(`❌ Right Leg selection failed: ${e.message}`, true); return null; });
+  function getDevice(name) { return devices.find(d => d.name === name); }
 
-    pT.then(device => device && connectDevice(device, 'T'));
-    pL.then(device => device && connectDevice(device, 'L'));
-    pR.then(device => device && connectDevice(device, 'R'));
-  };
+  // Runs once: Web Bluetooth feature/secure-context check.
+  if (!('bluetooth' in navigator)) {
+    log('❌ navigator.bluetooth is unavailable. Open this page over https:// or http://localhost (file:// is not a secure context).', true);
+  } else {
+    log('✓ Web Bluetooth available. Pair a module from its card.');
+  }
 
-  async function connectDevice(device, moduleId) {
+  // Pair API requires its own user activation per call, so each module gets
+  // its own button. Discover by SERVICE UUID (primary advertisement packet),
+  // then identify the module via its ID characteristic.
+  async function pair(expectId, buttonEl) {
+    if (getDevice(expectId)) { log(`⚠️ ${expectId} is already paired.`); return; }
+    buttonEl.disabled = true;
+    buttonEl.innerText = 'Selecting…';
     try {
-      log(`Connecting to ${moduleId}...`);
-      device.addEventListener('gattserverdisconnected', () => {
-        log(`⚠️ ${moduleId} disconnected`, true);
-        updateCardStatus(moduleId, 'Disconnected', false);
+      const device = await navigator.bluetooth.requestDevice({
+        filters: [{ services: [SERVICE_UUID] }],   // service UUID lives in the PRIMARY advertisement
+        optionalServices: [SERVICE_UUID]
       });
-      
+
+      device.addEventListener('gattserverdisconnected', () => {
+        log(`⚠️ ${expectId} disconnected`, true);
+        updateCardStatus(expectId, 'Disconnected', false);
+      });
+
       const server = await device.gatt.connect();
       const service = await server.getPrimaryService(SERVICE_UUID);
-      
       const idChar = await service.getCharacteristic(ID_UUID);
-      const idVal = new TextDecoder().decode(await idChar.readValue());
-      
+      const idVal = new TextDecoder().decode(await idChar.readValue()).trim();
       const timeChar = await service.getCharacteristic(TIME_UUID);
       const dataChar = await service.getCharacteristic(DATA_UUID);
-      
-      await syncTime(timeChar);
+
+      const mod = { name: idVal, device, service, syncOffset: 0, truncWarned: false };
+      await syncTime(mod, timeChar);
       await dataChar.startNotifications();
       dataChar.addEventListener('characteristicvaluechanged', (e) => handleData(e, idVal));
-      
-      devices.push({ name: idVal, service, timeChar, dataChar, device });
-      updateCardStatus(moduleId, 'Connected', false);
-      log(`✅ Connected to ${idVal}`);
-      
-      if (devices.length > 0) {
-        btnStartStream.disabled = false;
-        btnStartRec.disabled = false;
-      }
+
+      devices.push(mod);
+      updateCardStatus(idVal, 'Connected', false);
+      log(`✅ Paired ${idVal} (${device.name})`);
+      if (!isStreaming) { btnStartStream.disabled = false; btnStartRec.disabled = false; }
     } catch (err) {
-      log(`❌ Failed to connect ${moduleId}: ${err.message}`, true);
+      if (err.name === 'NotFoundError') {
+        log(`❌ No “Gait-${expectId}” found nearby. Is the module powered and advertising, and is no other app connected to it?`, true);
+      } else {
+        log(`❌ ${expectId} pairing failed: ${err.message}`, true);
+      }
+    } finally {
+      buttonEl.disabled = false;
+      buttonEl.innerText = `Pair ${expectId}`;
     }
   }
+
+  document.getElementById('btnPairT').onclick = () => pair('T', document.getElementById('btnPairT'));
+  document.getElementById('btnPairL').onclick = () => pair('L', document.getElementById('btnPairL'));
+  document.getElementById('btnPairR').onclick = () => pair('R', document.getElementById('btnPairR'));
 
   btnStartStream.onclick = () => sendCmd(0x01);
   btnStopStream.onclick = () => sendCmd(0x02);
   btnRefresh.onclick = () => { allSamples = []; sessionStartTime = null; updateStats(); log("Session data cleared."); };
-  
-  btnStartRec.onclick = () => {
-    isRecording = true; sessionStartTime = Date.now(); syncOffset = Date.now();
-    badgeRec.classList.add('active'); btnStartRec.disabled = true; btnStopRec.disabled = false; btnDownload.disabled = true;
-    log("Recording started...");
+
+  btnStartRec.onclick = async () => {
+    isRecording = true;
+    // Re-sync every module's clock right before recording starts, so all
+    // modules share one epoch for the new trial.
+    for (const d of devices) {
+      const timeChar = await d.service.getCharacteristic(TIME_UUID);
+      await syncTime(d, timeChar);
+    }
+    sessionStartTime = Date.now();
+    badgeRec.classList.add('active');
+    btnStartRec.disabled = true; btnStopRec.disabled = false; btnDownload.disabled = true;
+    log("Recording started — clocks re-synced.");
   };
-  
+
   btnStopRec.onclick = () => {
     isRecording = false; badgeRec.classList.remove('active');
-    btnStartRec.disabled = false; btnStopRec.disabled = true; btnDownload.disabled = false; 
+    btnStartRec.disabled = false; btnStopRec.disabled = true; btnDownload.disabled = false;
     log("Recording stopped. Ready to download CSV.");
   };
-  
+
   btnDownload.onclick = downloadCSV;
 
   function updateCardStatus(moduleId, status, streaming) {
@@ -222,13 +246,18 @@
     if (rateEl) rateEl.innerText = streaming ? '200' : '–';
   }
 
-  async function syncTime(timeChar) {
+  // Writes the host epoch (unix millis as sec + sub-ms10) to the module.
+  // The module counts every packet's t0 from the instant it receives this
+  // write; we capture that same instant here as syncOffset so
+  // unix = moduleOffset + device_ms is correct to within BLE latency.
+  async function syncTime(mod, timeChar) {
     const now = Date.now();
     const buf = new ArrayBuffer(6);
     const view = new DataView(buf);
     view.setUint32(0, Math.floor(now / 1000), true);
     view.setUint16(4, now % 1000, true);
     await timeChar.writeValue(buf);
+    mod.syncOffset = now;
   }
 
   async function sendCmd(cmd) {
@@ -250,12 +279,24 @@
   }
 
   function handleData(event, moduleId) {
-    const value = event.target.value;
-    const view = new DataView(value.buffer);
+    const mod = getDevice(moduleId);
+    if (!mod) return;
+    const view = new DataView(event.target.value.buffer, event.target.value.byteOffset, event.target.value.byteLength);
     const seq = view.getUint8(0);
     const N = view.getUint8(1);
-    const tFirst = view.getUint32(2, true); 
-    
+
+    // Guard against MTU truncation: if the negotiated MTU is too small the
+    // notification arrives trimmed and the full parse below would throw.
+    if (view.byteLength < 6 + 12 * N) {
+      if (!mod.truncWarned) {
+        mod.truncWarned = true;
+        log(`⚠️ ${moduleId}: packet truncated to ${view.byteLength} bytes (MTU too small for ${N} samples). Flash firmware with BLEDevice::setMTU(517) or reduce samples/packet.`, true);
+      }
+      return;
+    }
+
+    const tFirst = view.getUint32(2, true);
+
     if (lastSeq[moduleId] !== undefined && seq !== (lastSeq[moduleId] + 1) % 256) {
       console.warn(`⚠️ DROP on ${moduleId}: expected ${(lastSeq[moduleId] + 1) % 256}, got ${seq}`);
     }
@@ -269,9 +310,9 @@
       const gx = view.getInt16(offset + 6, true) * 0.0305;
       const gy = view.getInt16(offset + 8, true) * 0.0305;
       const gz = view.getInt16(offset + 10, true) * 0.0305;
-      
-      const device_ms = tFirst + (i * 5); 
-      const unix_time_ms = syncOffset + device_ms; 
+
+      const device_ms = tFirst + (i * 5);                      // ms since that module's time-sync
+      const unix_time_ms = mod.syncOffset + device_ms;         // host epoch
 
       if (isRecording) {
         allSamples.push({ module: moduleId, unix_time_ms, device_ms, ax_g: ax.toFixed(4), ay_g: ay.toFixed(4), az_g: az.toFixed(4), gx_dps: gx.toFixed(2), gy_dps: gy.toFixed(2), gz_dps: gz.toFixed(2) });
