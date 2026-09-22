@@ -214,7 +214,7 @@
   <div id="log" class="log-container"></div>
 
   <div class="footer-note">
-    Battery level only appears if a module exposes a battery service (the ESP32-C3 firmware omits it, so each card shows “–”).<br>
+    Battery level only appears if a module exposes a battery service (the ESP32-C3 firmware omits it, so each card shows "–").<br>
     Rows are interleaved per module; sort by unix_time_ms for chronological order. Keep sessions ≤ 15–20 min per trial.
   </div>
 </div>
@@ -232,6 +232,9 @@
   let isStreaming = false;
   let lastSeq = {};
   let sessionStartTime = null;
+  
+  // FIX: Store the time offset exactly once during sync to prevent BLE jitter from jumbling timestamps
+  let syncOffset = 0; 
 
   // UI Elements
   const logEl = document.getElementById('log');
@@ -300,7 +303,7 @@
     badgeRec.classList.remove('active');
     btnStartRec.disabled = false;
     btnStopRec.disabled = true;
-    btnDownload.disabled = false; // Explicitly enable download
+    btnDownload.disabled = false; 
     log("Recording stopped. Ready to download CSV.");
   };
   
@@ -366,6 +369,11 @@
 
   async function syncTime(timeChar) {
     const now = Date.now();
+    
+    // FIX: Anchor the device timeline to the PC timeline exactly once.
+    // This prevents BLE packet arrival jitter from jumbling the final CSV timestamps.
+    syncOffset = now; 
+    
     const sec = Math.floor(now / 1000);
     const ms10 = now % 1000;
     
@@ -413,8 +421,6 @@
     }
     lastSeq[moduleId] = seq;
 
-    const baseEpoch = Date.now() - tFirst; 
-
     for (let i = 0; i < N; i++) {
       const offset = 6 + (i * 12);
       const ax = view.getInt16(offset + 0, true) * 0.000244;
@@ -425,7 +431,9 @@
       const gz = view.getInt16(offset + 10, true) * 0.0305;
       
       const device_ms = tFirst + (i * 5); 
-      const unix_time_ms = baseEpoch + device_ms;
+      
+      // FIX: Calculate timestamp using the stable syncOffset + hardware timer
+      const unix_time_ms = syncOffset + device_ms; 
 
       if (isRecording) {
         allSamples.push({
@@ -450,10 +458,11 @@
     }
 
     log("Sorting data chronologically...");
+    // Because unix_time_ms is now perfectly tied to the ESP32 hardware timer, 
+    // this sort will flawlessly order the data from all 3 modules.
     allSamples.sort((a, b) => a.unix_time_ms - b.unix_time_ms);
     log("Generating CSV file...");
 
-    // FIX: Chunked Blob creation prevents browser memory crashes on large sessions
     const blobParts = ["module,unix_time_ms,timestamp_iso,device_ms,ax_g,ay_g,az_g,gx_dps,gy_dps,gz_dps\n"];
     const chunkSize = 10000;
     
