@@ -232,8 +232,6 @@
   let isStreaming = false;
   let lastSeq = {};
   let sessionStartTime = null;
-  
-  // FIX: Store the time offset exactly once during sync to prevent BLE jitter from jumbling timestamps
   let syncOffset = 0; 
 
   // UI Elements
@@ -267,7 +265,6 @@
       const secs = Math.floor(elapsed % 60);
       document.getElementById('statSessionLength').innerText = `${mins}m ${secs}s`;
       
-      // Approx size: ~110 bytes per row
       const sizeMB = (allSamples.length * 110) / (1024 * 1024);
       document.getElementById('statCsvSize').innerText = sizeMB.toFixed(1) + ' MB';
     } else {
@@ -278,7 +275,69 @@
 
   setInterval(updateStats, 1000);
 
-  btnPair.onclick = pairDevices;
+  // FIX: Synchronous pairing to preserve Web Bluetooth "User Gesture" context
+  btnPair.onclick = () => {
+    log("⏳ Preparing 3 pairing dialogs. Please select each module as they appear...");
+    
+    // We must call requestDevice synchronously for all 3 devices.
+    // If we await the connection of the first device before calling requestDevice 
+    // for the second, the browser loses the "user gesture" context and blocks the request.
+    
+    const pRight = navigator.bluetooth.requestDevice({
+      filters: [{ name: 'GaitIMU-RightLeg' }],
+      optionalServices: [SERVICE_UUID]
+    }).catch(e => { log(`❌ RightLeg selection failed: ${e.message}`, true); return null; });
+
+    const pLeft = navigator.bluetooth.requestDevice({
+      filters: [{ name: 'GaitIMU-LeftLeg' }],
+      optionalServices: [SERVICE_UUID]
+    }).catch(e => { log(`❌ LeftLeg selection failed: ${e.message}`, true); return null; });
+
+    const pTorso = navigator.bluetooth.requestDevice({
+      filters: [{ name: 'GaitIMU-Torso' }],
+      optionalServices: [SERVICE_UUID]
+    }).catch(e => { log(`❌ Torso selection failed: ${e.message}`, true); return null; });
+
+    // Process them as they resolve
+    pRight.then(device => device && connectDevice(device, 'RightLeg'));
+    pLeft.then(device => device && connectDevice(device, 'LeftLeg'));
+    pTorso.then(device => device && connectDevice(device, 'Torso'));
+  };
+
+  async function connectDevice(device, moduleId) {
+    try {
+      log(`Connecting to ${moduleId}...`);
+      device.addEventListener('gattserverdisconnected', () => {
+        log(`⚠️ ${moduleId} disconnected`, true);
+        updateCardStatus(moduleId, 'Disconnected', false);
+      });
+      
+      const server = await device.gatt.connect();
+      const service = await server.getPrimaryService(SERVICE_UUID);
+      
+      const idChar = await service.getCharacteristic(ID_UUID);
+      const idVal = new TextDecoder().decode(await idChar.readValue());
+      
+      const timeChar = await service.getCharacteristic(TIME_UUID);
+      const dataChar = await service.getCharacteristic(DATA_UUID);
+      
+      await syncTime(timeChar);
+      await dataChar.startNotifications();
+      dataChar.addEventListener('characteristicvaluechanged', (e) => handleData(e, idVal));
+      
+      devices.push({ name: idVal, service, timeChar, dataChar, device });
+      updateCardStatus(moduleId, 'Connected', false);
+      log(`✅ Connected to ${idVal}`);
+      
+      if (devices.length > 0) {
+        btnStartStream.disabled = false;
+        btnStartRec.disabled = false;
+      }
+    } catch (err) {
+      log(`❌ Failed to connect ${moduleId}: ${err.message}`, true);
+    }
+  }
+
   btnStartStream.onclick = () => sendCmd(0x01);
   btnStopStream.onclick = () => sendCmd(0x02);
   btnRefresh.onclick = () => {
@@ -291,6 +350,7 @@
   btnStartRec.onclick = () => {
     isRecording = true;
     sessionStartTime = Date.now();
+    syncOffset = Date.now(); // Anchor timestamp calculation
     badgeRec.classList.add('active');
     btnStartRec.disabled = true;
     btnStopRec.disabled = false;
@@ -309,50 +369,6 @@
   
   btnDownload.onclick = downloadCSV;
 
-  async function pairDevices() {
-    devices = [];
-    const names = ['GaitIMU-Torso', 'GaitIMU-LeftLeg', 'GaitIMU-RightLeg'];
-    
-    for (let name of names) {
-      try {
-        log(`Searching for ${name}...`);
-        const device = await navigator.bluetooth.requestDevice({
-          filters: [{ name: name }],
-          optionalServices: [SERVICE_UUID]
-        });
-        
-        device.addEventListener('gattserverdisconnected', () => {
-          log(`${name} disconnected`, true);
-          updateCardStatus(name.replace('GaitIMU-', ''), 'Disconnected', false);
-        });
-        
-        const server = await device.gatt.connect();
-        const service = await server.getPrimaryService(SERVICE_UUID);
-        
-        const idChar = await service.getCharacteristic(ID_UUID);
-        const idVal = new TextDecoder().decode(await idChar.readValue());
-        
-        const timeChar = await service.getCharacteristic(TIME_UUID);
-        const dataChar = await service.getCharacteristic(DATA_UUID);
-        
-        await syncTime(timeChar);
-        await dataChar.startNotifications();
-        dataChar.addEventListener('characteristicvaluechanged', (e) => handleData(e, idVal));
-        
-        devices.push({ name: idVal, service, timeChar, dataChar, device });
-        updateCardStatus(idVal, 'Connected', false);
-        log(`✅ Connected to ${idVal}`);
-      } catch (err) {
-        log(`❌ Failed to pair ${name}: ${err.message}`, true);
-      }
-    }
-    
-    if (devices.length > 0) {
-      btnStartStream.disabled = false;
-      btnStartRec.disabled = false;
-    }
-  }
-
   function updateCardStatus(moduleId, status, streaming) {
     const el = document.getElementById(`status-${moduleId}`);
     const rateEl = document.getElementById(`rate-${moduleId}`);
@@ -369,11 +385,6 @@
 
   async function syncTime(timeChar) {
     const now = Date.now();
-    
-    // FIX: Anchor the device timeline to the PC timeline exactly once.
-    // This prevents BLE packet arrival jitter from jumbling the final CSV timestamps.
-    syncOffset = now; 
-    
     const sec = Math.floor(now / 1000);
     const ms10 = now % 1000;
     
@@ -431,8 +442,6 @@
       const gz = view.getInt16(offset + 10, true) * 0.0305;
       
       const device_ms = tFirst + (i * 5); 
-      
-      // FIX: Calculate timestamp using the stable syncOffset + hardware timer
       const unix_time_ms = syncOffset + device_ms; 
 
       if (isRecording) {
@@ -458,8 +467,6 @@
     }
 
     log("Sorting data chronologically...");
-    // Because unix_time_ms is now perfectly tied to the ESP32 hardware timer, 
-    // this sort will flawlessly order the data from all 3 modules.
     allSamples.sort((a, b) => a.unix_time_ms - b.unix_time_ms);
     log("Generating CSV file...");
 
